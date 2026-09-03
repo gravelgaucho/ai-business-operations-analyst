@@ -1,0 +1,30 @@
+[project]
+name = "ai-business-operations-analyst"
+version = "0.1.0"
+description = "A local-first, evidence-driven AI business operations analyst."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "MIT"
+dependencies = [
+  "httpx>=0.28,<1",
+  "mlx>=0.32,<0.33",
+  "mlx-lm>=0.31.3,<0.32",
+  "mlx-vlm>=0.6.8,<0.7",
+  "psutil>=7,<8",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "ruff>=0.12,<1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
