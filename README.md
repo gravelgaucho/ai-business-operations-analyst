@@ -13,8 +13,9 @@ oversight.
 | Stage 2 — typed business questions | Complete | Tagged `v0.3-structured-output` |
 | Stage 3 — deterministic analytics | Complete | Tagged `v0.4-analytics-engine` |
 | Stage 4 — bounded tool calling | Complete | Tagged `v0.5-tool-calling` |
+| Stage 5 — controlled investigation agent | Complete | Tagged `v0.6-investigation-agent` |
 
-This repository contains four foundations:
+This repository contains six foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -25,8 +26,11 @@ This repository contains four foundations:
 - **Stage 3 — Deterministic Analytics:** safely import a public synthetic enterprise
   dataset and calculate rankings, comparisons, segmentation, variance, and concentration
   without asking an LLM to do arithmetic or data joins.
-- **Stage 4 — Bounded Tool Calling:** let the model select from three read-only, typed
+- **Stage 4 — Bounded Tool Calling:** let the model select from read-only, typed
   analytics tools, then return a grounded answer with an auditable call trace.
+- **Stage 5 — Controlled Investigation Agent:** classify a question, build a bounded plan,
+  select multiple analyses adaptively, preserve every observation, enforce evidence and
+  causal-restraint gates, and produce a typed decision-ready conclusion.
 
 ## What Stage 0 proves
 
@@ -56,6 +60,12 @@ native tool call and one continuation request; all 3/3 selected the expected too
 the required evidence into the final answer. See
 [docs/stage-4-tool-calling.md](docs/stage-4-tool-calling.md).
 
+Stage 5 qualified a real multi-step investigation in 162.77 seconds with 15.259 GiB peak
+server RSS. The model selected a pipeline baseline followed by the cross-system support
+overlap test; all 9 controller checks passed. The result correctly remained causally
+inconclusive because ticket timing and opportunity history are absent. See
+[docs/stage-5-investigation-agent.md](docs/stage-5-investigation-agent.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -77,6 +87,8 @@ business-ops-analytics account-risk
 business-ops-analytics product-risk --top 5
 business-ops-analytics pipeline-change --top 5
 business-ops-analyze "Which accounts have the most ARR exposed to open P1 tickets?"
+business-ops-investigate \
+  "Did open P1 issues explain the Q1 2026 closed-won ACV decline versus Q4 2025?"
 business-ops "Analyze the same question" --show-request --raw
 make qualify
 ```
@@ -98,6 +110,7 @@ src/business_ops/classifier.py Pydantic AI structured-output boundary
 src/business_ops/analytics/    Model-free calculations and result types
 src/business_ops/reports.py    Typed, reusable business-analysis reports
 src/business_ops/analyst.py    Bounded tool catalog and model continuation loop
+src/business_ops/investigation.py Typed plan, controlled evidence loop, and conclusion gates
 src/business_ops/datasets/     Verified import and Maple Payments adapter
 tests/                      Fast tests that do not load the model
 docs/architecture.md        Design boundary and deliberate non-goals
@@ -107,14 +120,16 @@ docs/stage-1-model-boundary.md  Request/response learning walkthrough
 docs/stage-2-typed-questions.md Typed-output design and verified example
 docs/stage-3-analytics-engine.md Deterministic analysis and verified findings
 docs/stage-4-tool-calling.md  Tool contracts, controls, and interpretation boundaries
+docs/stage-5-investigation-agent.md Multi-step controller and verified investigation
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 4 exposes only three read-only reports over DevRev's synthetic, Apache-2.0 licensed
-Maple Payments data. It does **not** add MCP, RAG, private business data, write actions,
-arbitrary queries, an open-ended investigation controller, or a user interface.
+Stage 5 exposes only four read-only reports over DevRev's synthetic, Apache-2.0 licensed
+Maple Payments data. Its investigation loop is capped at four distinct analyses. It does
+**not** add MCP, RAG, private business data, write actions, arbitrary queries, long-lived
+memory, or a user interface.
 
 ## Safety note
 

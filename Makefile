@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup data server ask classify analytics analyze qualify qualify-analytics qualify-tools test lint
+.PHONY: setup data server ask classify analytics analyze investigate qualify qualify-analytics qualify-tools qualify-investigation test lint
 
 setup:
 	/opt/homebrew/bin/python3.13 -m venv .venv
@@ -25,6 +25,9 @@ analytics:
 analyze:
 	$(PYTHON) -m business_ops.analyst_cli "$(QUESTION)"
 
+investigate:
+	$(PYTHON) -m business_ops.investigation_cli "$(QUESTION)"
+
 qualify:
 	$(PYTHON) scripts/qualify.py
 
@@ -33,6 +36,9 @@ qualify-analytics:
 
 qualify-tools:
 	$(PYTHON) scripts/qualify_tools.py
+
+qualify-investigation:
+	$(PYTHON) scripts/qualify_investigation.py
 
 test:
 	$(PYTHON) -m pytest

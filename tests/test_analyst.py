@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,10 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from business_ops.analyst import AnalyticsAgentError, create_analytics_agent, run_analysis
 from business_ops.datasets.download import DatasetImportError
+from business_ops.reports import (
+    SupportPipelineLinkQuery,
+    support_pipeline_link_report,
+)
 
 
 def write_records(root: Path, relative_path: str, records: list[dict[str, object]]) -> None:
@@ -35,6 +40,26 @@ def dataset(tmp_path: Path) -> Path:
                 "status": "open",
                 "components": ["P1"],
             }
+        ],
+    )
+    write_records(
+        tmp_path,
+        "crm_json_data/opportunities.json",
+        [
+            {
+                "account_id": "A",
+                "stage": "closed_won",
+                "currency": "USD",
+                "acv": 1000,
+                "target_close_date": "2025-12-15",
+            },
+            {
+                "account_id": "A",
+                "stage": "closed_won",
+                "currency": "USD",
+                "acv": 300,
+                "target_close_date": "2026-01-15",
+            },
         ],
     )
     return tmp_path
@@ -69,11 +94,31 @@ def test_agent_exposes_only_bounded_read_only_analytics_tools(
         "get_account_support_risk",
         "get_product_area_support_risk",
         "compare_closed_won_pipeline",
+        "test_support_pipeline_overlap",
     ]
     schema = observed["schema"]
     assert isinstance(schema, dict)
     assert schema["additionalProperties"] is False
     assert schema["properties"]["top_n"]["maximum"] == 20
+
+
+def test_support_pipeline_link_is_calculated_deterministically(dataset: Path) -> None:
+    result = support_pipeline_link_report(
+        dataset,
+        SupportPipelineLinkQuery(
+            current_start=date(2026, 1, 1),
+            current_end=date(2026, 3, 31),
+            previous_start=date(2025, 10, 1),
+            previous_end=date(2025, 12, 31),
+            top_n_decliners=5,
+            priorities=["p1"],
+        ),
+    )
+
+    assert result.overlapping_accounts == 1
+    assert result.overlap_share_of_top_decline_count_percent == 100.0
+    assert result.overlapping_absolute_change == 700
+    assert result.overlaps[0].account_name == "Alpha"
 
 
 def test_agent_executes_tool_and_continues_with_returned_evidence(

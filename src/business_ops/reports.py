@@ -65,6 +65,18 @@ class PipelineChangeQuery(ReportModel):
     currency: Currency = Currency.USD
 
 
+class SupportPipelineLinkQuery(ReportModel):
+    current_start: date
+    current_end: date
+    previous_start: date
+    previous_end: date
+    top_n_decliners: int = Field(default=5, ge=1, le=20)
+    priorities: list[TicketPriority] = Field(
+        default_factory=lambda: [TicketPriority.P1], min_length=1, max_length=4
+    )
+    currency: Currency = Currency.USD
+
+
 class SourceMetadata(ReportModel):
     dataset: str
     source_commit: str
@@ -102,6 +114,31 @@ class PipelineChangeReport(ReportModel):
     largest_decline_contributors: list[EntityChange]
     current_segments: list[SegmentMetric]
     current_concentration: ConcentrationAnalysis
+
+
+class SupportPipelineAccount(ReportModel):
+    decline_rank: int
+    account_id: str
+    account_name: str
+    region: str
+    opportunity_acv: Variance
+    arr_at_risk: int
+    open_ticket_count: int
+
+
+class SupportPipelineLinkReport(ReportModel):
+    question: str
+    source: SourceMetadata
+    metric_definition: str
+    top_decline_accounts_considered: int
+    support_risk_accounts: int
+    overlapping_accounts: int
+    overlap_share_of_top_decline_count_percent: float
+    top_decline_absolute_change: int
+    overlapping_absolute_change: int
+    overlap_share_of_top_decline_change_percent: float
+    overlaps: list[SupportPipelineAccount]
+    interpretation_boundary: str
 
 
 def source_metadata() -> SourceMetadata:
@@ -177,4 +214,69 @@ def pipeline_change_report(root: Path, query: PipelineChangeQuery) -> PipelineCh
         largest_decline_contributors=declines,
         current_segments=segment_performance(records, period=current),
         current_concentration=analyze_concentration(records, period=current, top_n=query.top_n),
+    )
+
+
+def support_pipeline_link_report(
+    root: Path, query: SupportPipelineLinkQuery
+) -> SupportPipelineLinkReport:
+    """Measure set overlap without asking the model to perform a cross-system join."""
+
+    current = DateRange(start=query.current_start, end=query.current_end)
+    previous = DateRange(start=query.previous_start, end=query.previous_end)
+    records = opportunity_metric_records(root, stage="closed_won", currency=query.currency.value)
+    comparison = compare_periods(records, current, previous)
+    top_declines = [
+        item for item in comparison.contributors if item.variance.absolute_change < 0
+    ][: query.top_n_decliners]
+    priorities = frozenset(priority.value for priority in query.priorities)
+    at_risk = {
+        item.account_id: item
+        for item in rank_account_risk(root, priorities=priorities, top_n=10_000)
+    }
+    overlaps = [
+        SupportPipelineAccount(
+            decline_rank=rank,
+            account_id=decline.entity_id,
+            account_name=decline.entity_name,
+            region=decline.segment,
+            opportunity_acv=decline.variance,
+            arr_at_risk=at_risk[decline.entity_id].arr_at_risk,
+            open_ticket_count=at_risk[decline.entity_id].open_ticket_count,
+        )
+        for rank, decline in enumerate(top_declines, start=1)
+        if decline.entity_id in at_risk
+    ]
+    top_decline_change = sum(abs(item.variance.absolute_change) for item in top_declines)
+    overlap_change = sum(abs(item.opportunity_acv.absolute_change) for item in overlaps)
+    priority_label = "/".join(sorted(priority.upper() for priority in priorities))
+    return SupportPipelineLinkReport(
+        question=(
+            f"Do accounts with open {priority_label} tickets overlap with the top "
+            f"{query.top_n_decliners} closed-won {query.currency.value} opportunity ACV "
+            "decline contributors?"
+        ),
+        source=source_metadata(),
+        metric_definition=(
+            "Set overlap between accounts with matching open support tickets and the largest "
+            "closed-won opportunity ACV declines by target close date."
+        ),
+        top_decline_accounts_considered=len(top_declines),
+        support_risk_accounts=len(at_risk),
+        overlapping_accounts=len(overlaps),
+        overlap_share_of_top_decline_count_percent=(
+            round(len(overlaps) / len(top_declines) * 100, 2) if top_declines else 0.0
+        ),
+        top_decline_absolute_change=top_decline_change,
+        overlapping_absolute_change=overlap_change,
+        overlap_share_of_top_decline_change_percent=(
+            round(overlap_change / top_decline_change * 100, 2)
+            if top_decline_change
+            else 0.0
+        ),
+        overlaps=overlaps,
+        interpretation_boundary=(
+            "Overlap is an association screen, not evidence that support tickets caused the "
+            "opportunity change. Ticket timing and opportunity stage history are not tested."
+        ),
     )

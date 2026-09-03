@@ -7,7 +7,15 @@ from typing import Any
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict
-from pydantic_ai import Agent, ModelMessage, RunContext, ToolCallPart, ToolReturnPart, UsageLimits
+from pydantic_ai import (
+    Agent,
+    ModelMessage,
+    RunContext,
+    Tool,
+    ToolCallPart,
+    ToolReturnPart,
+    UsageLimits,
+)
 from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -26,9 +34,12 @@ from business_ops.reports import (
     PipelineChangeReport,
     ProductRiskQuery,
     ProductRiskReport,
+    SupportPipelineLinkQuery,
+    SupportPipelineLinkReport,
     account_risk_report,
     pipeline_change_report,
     product_risk_report,
+    support_pipeline_link_report,
 )
 
 ANALYST_INSTRUCTIONS = """
@@ -84,6 +95,66 @@ class AnalyticsAgentError(RuntimeError):
     """Stable application error for a failed tool-backed analysis."""
 
 
+def get_account_support_risk(
+    ctx: RunContext[AnalystDependencies], query: AccountRiskQuery
+) -> AccountRiskReport:
+    """Rank account ARR exposed to open priority support tickets.
+
+    Args:
+        ctx: The validated local dataset dependency.
+        query: Bounded ranking size and support-ticket priorities to include.
+    """
+
+    return account_risk_report(ctx.deps.data_root, query)
+
+
+def get_product_area_support_risk(
+    ctx: RunContext[AnalystDependencies], query: ProductRiskQuery
+) -> ProductRiskReport:
+    """Rank product areas by account ARR exposed through open priority tickets.
+
+    Args:
+        ctx: The validated local dataset dependency.
+        query: Bounded ranking size and support-ticket priorities to include.
+    """
+
+    return product_risk_report(ctx.deps.data_root, query)
+
+
+def compare_closed_won_pipeline(
+    ctx: RunContext[AnalystDependencies], query: PipelineChangeQuery
+) -> PipelineChangeReport:
+    """Compare closed-won opportunity ACV across two explicit target-close periods.
+
+    Args:
+        ctx: The validated local dataset dependency.
+        query: Current and previous periods, currency, and bounded contributor count.
+    """
+
+    return pipeline_change_report(ctx.deps.data_root, query)
+
+
+def test_support_pipeline_overlap(
+    ctx: RunContext[AnalystDependencies], query: SupportPipelineLinkQuery
+) -> SupportPipelineLinkReport:
+    """Test overlap between top pipeline decliners and accounts with priority tickets.
+
+    Args:
+        ctx: The validated local dataset dependency.
+        query: Periods, priorities, currency, and bounded decline population to compare.
+    """
+
+    return support_pipeline_link_report(ctx.deps.data_root, query)
+
+
+ANALYTICS_TOOLS = (
+    Tool(get_account_support_risk, require_parameter_descriptions=True),
+    Tool(get_product_area_support_risk, require_parameter_descriptions=True),
+    Tool(compare_closed_won_pipeline, require_parameter_descriptions=True),
+    Tool(test_support_pipeline_overlap, require_parameter_descriptions=True),
+)
+
+
 def create_analytics_agent(model: Model) -> Agent[AnalystDependencies, str]:
     """Create the tool-backed agent independently of any particular model provider."""
 
@@ -93,47 +164,8 @@ def create_analytics_agent(model: Model) -> Agent[AnalystDependencies, str]:
         instructions=ANALYST_INSTRUCTIONS,
         model_settings={"temperature": 0.0, "max_tokens": 1024},
         retries=2,
+        tools=ANALYTICS_TOOLS,
     )
-
-    @agent.tool(require_parameter_descriptions=True)
-    def get_account_support_risk(
-        ctx: RunContext[AnalystDependencies], query: AccountRiskQuery
-    ) -> AccountRiskReport:
-        """Rank account ARR exposed to open priority support tickets.
-
-        Args:
-            ctx: The validated local dataset dependency.
-            query: Bounded ranking size and support-ticket priorities to include.
-        """
-
-        return account_risk_report(ctx.deps.data_root, query)
-
-    @agent.tool(require_parameter_descriptions=True)
-    def get_product_area_support_risk(
-        ctx: RunContext[AnalystDependencies], query: ProductRiskQuery
-    ) -> ProductRiskReport:
-        """Rank product areas by account ARR exposed through open priority tickets.
-
-        Args:
-            ctx: The validated local dataset dependency.
-            query: Bounded ranking size and support-ticket priorities to include.
-        """
-
-        return product_risk_report(ctx.deps.data_root, query)
-
-    @agent.tool(require_parameter_descriptions=True)
-    def compare_closed_won_pipeline(
-        ctx: RunContext[AnalystDependencies], query: PipelineChangeQuery
-    ) -> PipelineChangeReport:
-        """Compare closed-won opportunity ACV across two explicit target-close periods.
-
-        Args:
-            ctx: The validated local dataset dependency.
-            query: Current and previous periods, currency, and bounded contributor count.
-        """
-
-        return pipeline_change_report(ctx.deps.data_root, query)
-
     return agent
 
 
@@ -153,7 +185,7 @@ def build_analytics_agent(settings: Settings | None = None) -> Agent[AnalystDepe
     return create_analytics_agent(model)
 
 
-def _tool_trace(messages: list[ModelMessage]) -> list[ToolCallTrace]:
+def extract_tool_trace(messages: list[ModelMessage]) -> list[ToolCallTrace]:
     calls: list[tuple[str, str, dict[str, Any]]] = []
     returned_ids: set[str] = set()
     for message in messages:
@@ -197,7 +229,7 @@ def run_analysis(
     except (AgentRunError, UserError, DatasetImportError, EnterpriseBenchDataError) as exc:
         raise AnalyticsAgentError(f"Tool-backed analysis failed: {exc}") from exc
 
-    trace = _tool_trace(result.all_messages())
+    trace = extract_tool_trace(result.all_messages())
     if not any(call.returned for call in trace):
         raise AnalyticsAgentError(
             "Tool-backed analysis failed: the model did not complete a verified "

@@ -1,4 +1,4 @@
-# Architecture through Stage 4
+# Architecture through Stage 5
 
 ## Decision
 
@@ -12,11 +12,11 @@ configuration.
                  +-----------------+-----------------+
                  |                                   |
                  v                                   v
-       typed-question path                  tool-backed path
+       typed-question path                investigation path
                  |                                   |
-        Pydantic AI adapter          bounded read-only tool catalog
+        Pydantic AI adapter          plan -> select -> observe -> stop
                  |                                   |
-        OpenAI-compatible API              analytics reports
+        OpenAI-compatible API        bounded read-only report catalog
                  |                                   |
         local model server                analytics functions
                  |                                   |
@@ -49,6 +49,19 @@ access files directly. Each run verifies the pinned dataset before model work, e
 request and tool-call limits, and returns an audit trace. Provider construction remains at
 the application edge; the tool functions and analytics do not import MLX or Qwen.
 
+Stage 5 adds an explicit controller in `business_ops.investigation`. The model proposes a
+typed plan and chooses the next analysis from the plan after seeing prior observations.
+Python validates that choice, executes the deterministic report, records both the decision
+and observation, and evaluates a fixed evidence gate. Synthesis begins only after at least
+two distinct analyses complete and, when planned, the cross-system overlap test has run.
+
+This separation is deliberate. Qualification showed that the local baseline could emit a
+valid conclusion before completing enough native tool calls and would not reliably resume
+tool use after an output retry. Moving the loop into the application preserves model-selected
+analysis while making progress, stopping, and audit state deterministic. A separate semantic
+gate rejects citations to unexecuted analyses, unsupported statistical claims, and decisive
+causal conclusions when timing and history evidence is absent.
+
 ## Why this baseline
 
 `Qwen3.8-27B` is the current dense 27B model in the requested Qwen3.8 class. The MLX
@@ -68,8 +81,8 @@ the same external qualification contract before replacement.
 - No production serving claims
 - No vision qualification yet
 
-Pydantic AI owns the bounded function-tool continuation loop. It is not yet an investigation
-controller: there is no planning state, long-lived memory, delegation, or open-ended loop.
+The application owns the bounded investigation loop. There is typed planning state, but no
+long-lived memory, delegation, self-modifying plan, or open-ended autonomy.
 
 The Maple Payments corpus is downloaded locally and ignored by Git. Its importer pins the
 official upstream commit and archive checksum and rejects unapproved archive contents.

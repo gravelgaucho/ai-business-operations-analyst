@@ -59,6 +59,25 @@ make qualify-analytics
 joins accounts, tickets, and product components. `pipeline-change` compares opportunity ACV
 by target close date; its output explicitly warns that this is not recognized revenue.
 
+Run a Stage 4 single-tool question:
+
+```bash
+business-ops-analyze "Which five accounts have the most ARR exposed to open P1 tickets?"
+make qualify-tools
+```
+
+Run the Stage 5 controlled multi-analysis investigation:
+
+```bash
+business-ops-investigate \
+  "Did open P1 support issues explain the Q1 2026 closed-won USD ACV decline versus Q4 2025?"
+make qualify-investigation
+```
+
+The investigation prints its plan, model-selected decisions, deterministic observations,
+stop reason, typed conclusion, and usage as JSON. On the qualified 27B baseline, allow about
+three minutes for this multi-request workflow.
+
 Inspect both sides of the API boundary:
 
 ```bash
@@ -96,6 +115,8 @@ it answers prompts; it must pass the full tool and structure contract.
   harness already applies this compatibility guard.
 - Classification fails after retries: rerun once, then inspect the schema and server log;
   the command never returns an unvalidated partial object.
+- Investigation fails an evidence or causal gate: inspect the validation feedback rather
+  than weakening the gate. The controller will not publish an under-evidenced conclusion.
 - Dataset missing: run `make data`. The importer will not overwrite an existing directory
   whose source marker is absent or does not match the pinned release.
 - Port busy: set matching `PORT` and `BASE_URL` values in `.env`.
