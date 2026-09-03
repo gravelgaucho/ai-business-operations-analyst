@@ -1,4 +1,4 @@
-# Architecture through Stage 3
+# Architecture through Stage 4
 
 ## Decision
 
@@ -12,15 +12,17 @@ configuration.
                  +-----------------+-----------------+
                  |                                   |
                  v                                   v
-       typed-question path                  deterministic path
+       typed-question path                  tool-backed path
                  |                                   |
-        Pydantic AI adapter                  analytics functions
+        Pydantic AI adapter          bounded read-only tool catalog
                  |                                   |
-        OpenAI-compatible API              Maple Payments adapter
+        OpenAI-compatible API              analytics reports
                  |                                   |
-        local model server                 verified local JSON data
-                 |
-     Qwen3.8 weights (replaceable)
+        local model server                analytics functions
+                 |                                   |
+     Qwen3.8 weights (replaceable)        Maple Payments adapter
+                                                     |
+                                             verified local JSON data
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
@@ -39,7 +41,13 @@ model implementation; the default builder supplies an OpenAI-compatible localhos
 Stage 3 creates a separate deterministic path. Generic analytics operate on normalized
 `MetricRecord` objects; the Enterprise-Bench adapter owns the source-specific field names
 and joins. This keeps business calculations reusable when another approved public dataset
-is introduced. The LLM cannot call these functions yet.
+is introduced.
+
+Stage 4 adds a narrow tool adapter around typed reports. The local model may select a tool
+and validated inputs, but it cannot change calculation logic, issue arbitrary queries, or
+access files directly. Each run verifies the pinned dataset before model work, enforces
+request and tool-call limits, and returns an audit trace. Provider construction remains at
+the application edge; the tool functions and analytics do not import MLX or Qwen.
 
 ## Why this baseline
 
@@ -60,8 +68,8 @@ the same external qualification contract before replacement.
 - No production serving claims
 - No vision qualification yet
 
-Pydantic AI is currently used only for one typed classification request. No tools are
-registered and no autonomous loop is present.
+Pydantic AI owns the bounded function-tool continuation loop. It is not yet an investigation
+controller: there is no planning state, long-lived memory, delegation, or open-ended loop.
 
 The Maple Payments corpus is downloaded locally and ignored by Git. Its importer pins the
 official upstream commit and archive checksum and rejects unapproved archive contents.

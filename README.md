@@ -12,9 +12,9 @@ oversight.
 | Stage 1 — Python model client | Complete | Tagged `v0.2-python-client` |
 | Stage 2 — typed business questions | Complete | Tagged `v0.3-structured-output` |
 | Stage 3 — deterministic analytics | Complete | Tagged `v0.4-analytics-engine` |
-| Stage 4 — tool calling | Next | Not started |
+| Stage 4 — bounded tool calling | Complete | Tagged `v0.5-tool-calling` |
 
-This repository contains three completed foundations:
+This repository contains four foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -25,6 +25,8 @@ This repository contains three completed foundations:
 - **Stage 3 — Deterministic Analytics:** safely import a public synthetic enterprise
   dataset and calculate rankings, comparisons, segmentation, variance, and concentration
   without asking an LLM to do arithmetic or data joins.
+- **Stage 4 — Bounded Tool Calling:** let the model select from three read-only, typed
+  analytics tools, then return a grounded answer with an auditable call trace.
 
 ## What Stage 0 proves
 
@@ -49,6 +51,11 @@ This repository contains three completed foundations:
 The model identifier, URL, and context limit are configuration—not application logic.
 See [docs/architecture.md](docs/architecture.md) for the boundary.
 
+Stage 4 qualified all three analytics tools with the local baseline. Each case required one
+native tool call and one continuation request; all 3/3 selected the expected tool and carried
+the required evidence into the final answer. See
+[docs/stage-4-tool-calling.md](docs/stage-4-tool-calling.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -69,6 +76,7 @@ business-ops-classify "Why did Northeast revenue decline last quarter?"
 business-ops-analytics account-risk
 business-ops-analytics product-risk --top 5
 business-ops-analytics pipeline-change --top 5
+business-ops-analyze "Which accounts have the most ARR exposed to open P1 tickets?"
 business-ops "Analyze the same question" --show-request --raw
 make qualify
 ```
@@ -88,6 +96,8 @@ src/business_ops/cli.py     Inspectable business-question command line
 src/business_ops/questions.py  Validated business-question contract
 src/business_ops/classifier.py Pydantic AI structured-output boundary
 src/business_ops/analytics/    Model-free calculations and result types
+src/business_ops/reports.py    Typed, reusable business-analysis reports
+src/business_ops/analyst.py    Bounded tool catalog and model continuation loop
 src/business_ops/datasets/     Verified import and Maple Payments adapter
 tests/                      Fast tests that do not load the model
 docs/architecture.md        Design boundary and deliberate non-goals
@@ -96,15 +106,15 @@ docs/qualification.md       Hardware, versions, evidence, and measured results
 docs/stage-1-model-boundary.md  Request/response learning walkthrough
 docs/stage-2-typed-questions.md Typed-output design and verified example
 docs/stage-3-analytics-engine.md Deterministic analysis and verified findings
+docs/stage-4-tool-calling.md  Tool contracts, controls, and interpretation boundaries
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 3 adds only DevRev's synthetic, Apache-2.0 licensed Maple Payments data. It does
-**not** add agent tools, MCP, RAG, private business data, or a user interface. The model
-can classify a question, but it cannot invoke the analytics yet; that boundary is the
-purpose of Stage 4.
+Stage 4 exposes only three read-only reports over DevRev's synthetic, Apache-2.0 licensed
+Maple Payments data. It does **not** add MCP, RAG, private business data, write actions,
+arbitrary queries, an open-ended investigation controller, or a user interface.
 
 ## Safety note
 
