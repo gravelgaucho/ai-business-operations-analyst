@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup server qualify test lint
+.PHONY: setup server ask qualify test lint
 
 setup:
 	/opt/homebrew/bin/python3.13 -m venv .venv
@@ -10,6 +10,9 @@ setup:
 server:
 	./scripts/start_server.sh
 
+ask:
+	$(PYTHON) -m business_ops.cli "$(QUESTION)"
+
 qualify:
 	$(PYTHON) scripts/qualify.py
 
@@ -18,4 +21,3 @@ test:
 
 lint:
 	$(PYTHON) -m ruff check .
-

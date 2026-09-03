@@ -4,9 +4,20 @@ A local-first AI system designed to investigate business performance questions,
 test hypotheses against evidence, and produce decision-ready findings with human
 oversight.
 
-This repository currently contains **Stage 0: Local Model Qualification**. It proves
-that a capable open model can run privately on Apple silicon behind a standard HTTP
-interface before any application framework or data layer is introduced.
+## Progress
+
+| Milestone | Status | Proof |
+|---|---:|---|
+| Stage 0 — local inference | Complete | Tagged `stage-0` |
+| Stage 1 — Python model client | Complete | Tagged `v0.2-python-client` |
+| Stage 2 — typed business questions | Next | Not started |
+
+This repository contains two completed foundations:
+
+- **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
+  Apple silicon behind a standard HTTP interface.
+- **Stage 1 — Model Boundary:** send, inspect, validate, and handle those HTTP requests
+  in our own Python application before introducing an agent framework.
 
 ## What Stage 0 proves
 
@@ -45,6 +56,8 @@ make server
 In a second terminal:
 
 ```bash
+business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
+business-ops "Analyze the same question" --show-request --raw
 make qualify
 ```
 
@@ -58,18 +71,20 @@ snapshot for this milestone is summarized in [docs/qualification.md](docs/qualif
 ```text
 scripts/start_server.sh     Local-only model server launcher
 scripts/qualify.py          End-to-end API and performance qualification
-src/stage0/                 Model-neutral configuration and validation code
+src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
+src/business_ops/cli.py     Inspectable business-question command line
 tests/                      Fast tests that do not load the model
 docs/architecture.md        Design boundary and deliberate non-goals
 docs/qualification.md       Hardware, versions, evidence, and measured results
+docs/stage-1-model-boundary.md  Request/response learning walkthrough
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 0 intentionally does **not** include an agent framework, Pydantic AI, MCP, RAG,
+Stages 0–1 intentionally do **not** include an agent framework, Pydantic AI, MCP, RAG,
 business datasets, or a user interface. Those layers should only be added after the
-local model contract is proven.
+local model contract is understood and proven.
 
 ## Safety note
 

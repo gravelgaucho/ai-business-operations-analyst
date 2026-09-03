@@ -1,4 +1,4 @@
-from stage0.validation import validate_finding
+from business_ops.validation import validate_finding
 
 
 def test_valid_finding() -> None:
@@ -15,4 +15,3 @@ def test_rejects_missing_extra_and_wrong_types() -> None:
     assert any("missing keys" in error for error in errors)
     assert any("unexpected keys" in error for error in errors)
     assert "finding is not a string" in errors
-

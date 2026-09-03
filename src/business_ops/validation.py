@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 FINDING_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -33,3 +31,4 @@ def validate_finding(value: object) -> list[str]:
     if value.get("confidence") not in {"low", "medium", "high"}:
         errors.append("confidence is not low, medium, or high")
     return errors
+

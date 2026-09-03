@@ -27,6 +27,21 @@ Run qualification from another terminal:
 make qualify
 ```
 
+Ask a business question through the Stage 1 Python client:
+
+```bash
+business-ops "Revenue fell 12% while customer count stayed flat. What should we investigate?"
+```
+
+Inspect both sides of the API boundary:
+
+```bash
+business-ops "Analyze the revenue change" --show-request --raw
+```
+
+`--temperature`, `--max-tokens`, `--system`, `--model`, and `--base-url` make the
+important protocol controls visible without changing source code.
+
 Run fast repository checks without loading the model:
 
 ```bash

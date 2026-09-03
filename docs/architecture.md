@@ -7,7 +7,7 @@ The model runtime sits behind that boundary and can be changed through environme
 configuration.
 
 ```text
-qualification client
+Python client / qualification client
         |
         | OpenAI-compatible JSON over localhost
         v
@@ -18,8 +18,12 @@ Qwen3.8-27B 4-bit weights (replaceable)
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
-It builds on the same MLX and MLX-LM stack; Stage 0 exercises text only. The client has
-no MLX or Qwen imports and only knows a model identifier plus a base URL.
+It builds on the same MLX and MLX-LM stack; Stages 0–1 exercise text only. The clients
+have no MLX or Qwen imports and only know a model identifier plus a base URL.
+
+Stage 1 formalizes this boundary in `business_ops.client.ModelServerClient`. It exposes
+small application types while preserving the complete raw response for learning and
+diagnostics. Transport-specific exceptions do not leak past this module.
 
 ## Why this baseline
 
@@ -50,4 +54,3 @@ A model qualifies only when all five automated checks pass in one run: server di
 basic inference, schema-constrained JSON, native tool-call emission, and continuation
 after a tool result. The run must also record per-check latency, token usage when exposed,
 package versions, and sampled peak server RSS.
-

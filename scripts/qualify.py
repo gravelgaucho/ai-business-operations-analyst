@@ -16,8 +16,8 @@ from typing import Any
 import httpx
 import psutil
 
-from stage0.config import Settings
-from stage0.validation import FINDING_SCHEMA, validate_finding
+from business_ops.config import Settings
+from business_ops.validation import FINDING_SCHEMA, validate_finding
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT = ROOT / "artifacts" / "qualification.json"
