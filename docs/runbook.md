@@ -5,10 +5,13 @@
 ```bash
 make setup
 cp .env.example .env
+make data
 ```
 
 The environment is stored in `.venv` and ignored by Git. Dependencies are bounded in
 `pyproject.toml`; the exact installed versions are captured in each qualification artifact.
+The downloaded Maple Payments corpus is stored in `data/enterprise_bench`, verified against
+its pinned checksum, and ignored by Git.
 
 ## Start and stop
 
@@ -42,6 +45,19 @@ business-ops-classify "Why did Northeast revenue decline last quarter?"
 The command prints JSON only, so a later application can consume it directly. The local
 model receives a native JSON Schema derived from `BusinessQuestion`. Invalid output is
 returned to the model for correction up to two times before the command fails clearly.
+
+Run deterministic Stage 3 analysis without starting the model server:
+
+```bash
+business-ops-analytics account-risk
+business-ops-analytics product-risk --top 5
+business-ops-analytics pipeline-change --top 5
+make qualify-analytics
+```
+
+`account-risk` ranks distinct account ARR exposed to matching open tickets. `product-risk`
+joins accounts, tickets, and product components. `pipeline-change` compares opportunity ACV
+by target close date; its output explicitly warns that this is not recognized revenue.
 
 Inspect both sides of the API boundary:
 
@@ -80,6 +96,8 @@ it answers prompts; it must pass the full tool and structure contract.
   harness already applies this compatibility guard.
 - Classification fails after retries: rerun once, then inspect the schema and server log;
   the command never returns an unvalidated partial object.
+- Dataset missing: run `make data`. The importer will not overwrite an existing directory
+  whose source marker is absent or does not match the pinned release.
 - Port busy: set matching `PORT` and `BASE_URL` values in `.env`.
 - Custom binding: use `SERVER_HOST`; zsh reserves `HOST` for the Mac's hostname.
 

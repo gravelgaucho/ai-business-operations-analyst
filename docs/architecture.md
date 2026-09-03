@@ -1,4 +1,4 @@
-# Architecture through Stage 2
+# Architecture through Stage 3
 
 ## Decision
 
@@ -7,20 +7,20 @@ The model runtime sits behind that boundary and can be changed through environme
 configuration.
 
 ```text
-CLI / future application layers
-        |
-        v
-Pydantic business-question contract
-        |
-        v
-Pydantic AI structured-output adapter
-        |
-        | OpenAI-compatible JSON over localhost
-        v
-MLX-VLM server -> MLX-LM generation utilities -> MLX -> Apple unified memory
-        |
-        v
-Qwen3.8-27B 4-bit weights (replaceable)
+                         CLI / future application
+                                   |
+                 +-----------------+-----------------+
+                 |                                   |
+                 v                                   v
+       typed-question path                  deterministic path
+                 |                                   |
+        Pydantic AI adapter                  analytics functions
+                 |                                   |
+        OpenAI-compatible API              Maple Payments adapter
+                 |                                   |
+        local model server                 verified local JSON data
+                 |
+     Qwen3.8 weights (replaceable)
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
@@ -36,6 +36,11 @@ Stage 2 adds a second adapter in `business_ops.classifier`. Pydantic AI translat
 the response back into that application type. The classifier accepts any Pydantic AI
 model implementation; the default builder supplies an OpenAI-compatible localhost model.
 
+Stage 3 creates a separate deterministic path. Generic analytics operate on normalized
+`MetricRecord` objects; the Enterprise-Bench adapter owns the source-specific field names
+and joins. This keeps business calculations reusable when another approved public dataset
+is introduced. The LLM cannot call these functions yet.
+
 ## Why this baseline
 
 `Qwen3.8-27B` is the current dense 27B model in the requested Qwen3.8 class. The MLX
@@ -50,13 +55,16 @@ the same external qualification contract before replacement.
 
 - No MCP protocol or external tools
 - No retrieval, embeddings, vector store, or RAG
-- No business dataset
+- No private or proprietary business dataset
 - No UI
 - No production serving claims
 - No vision qualification yet
 
 Pydantic AI is currently used only for one typed classification request. No tools are
 registered and no autonomous loop is present.
+
+The Maple Payments corpus is downloaded locally and ignored by Git. Its importer pins the
+official upstream commit and archive checksum and rejects unapproved archive contents.
 
 The `lookup_account_metrics` function used in qualification is a deterministic fixture.
 It proves protocol behavior; it is not a data integration.

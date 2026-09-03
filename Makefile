@@ -1,11 +1,14 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup server ask classify qualify test lint
+.PHONY: setup data server ask classify analytics qualify qualify-analytics test lint
 
 setup:
 	/opt/homebrew/bin/python3.13 -m venv .venv
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -e '.[dev]'
+
+data:
+	$(PYTHON) scripts/fetch_enterprise_bench.py
 
 server:
 	./scripts/start_server.sh
@@ -16,8 +19,14 @@ ask:
 classify:
 	$(PYTHON) -m business_ops.classify_cli "$(QUESTION)"
 
+analytics:
+	$(PYTHON) -m business_ops.analytics_cli account-risk
+
 qualify:
 	$(PYTHON) scripts/qualify.py
+
+qualify-analytics:
+	$(PYTHON) scripts/qualify_analytics.py
 
 test:
 	$(PYTHON) -m pytest

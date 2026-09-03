@@ -11,7 +11,8 @@ oversight.
 | Stage 0 — local inference | Complete | Tagged `stage-0` |
 | Stage 1 — Python model client | Complete | Tagged `v0.2-python-client` |
 | Stage 2 — typed business questions | Complete | Tagged `v0.3-structured-output` |
-| Stage 3 — business analytics | Next | Not started |
+| Stage 3 — deterministic analytics | Complete | Tagged `v0.4-analytics-engine` |
+| Stage 4 — tool calling | Next | Not started |
 
 This repository contains three completed foundations:
 
@@ -21,6 +22,9 @@ This repository contains three completed foundations:
   in our own Python application before introducing an agent framework.
 - **Stage 2 — Typed Business Questions:** use Pydantic and Pydantic AI to turn natural
   language into a validated application object, including retrying malformed output.
+- **Stage 3 — Deterministic Analytics:** safely import a public synthetic enterprise
+  dataset and calculate rankings, comparisons, segmentation, variance, and concentration
+  without asking an LLM to do arithmetic or data joins.
 
 ## What Stage 0 proves
 
@@ -53,6 +57,7 @@ space for packages plus the model cache.
 ```bash
 make setup
 cp .env.example .env
+make data
 make server
 ```
 
@@ -61,6 +66,9 @@ In a second terminal:
 ```bash
 business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
 business-ops-classify "Why did Northeast revenue decline last quarter?"
+business-ops-analytics account-risk
+business-ops-analytics product-risk --top 5
+business-ops-analytics pipeline-change --top 5
 business-ops "Analyze the same question" --show-request --raw
 make qualify
 ```
@@ -79,20 +87,24 @@ src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
 src/business_ops/cli.py     Inspectable business-question command line
 src/business_ops/questions.py  Validated business-question contract
 src/business_ops/classifier.py Pydantic AI structured-output boundary
+src/business_ops/analytics/    Model-free calculations and result types
+src/business_ops/datasets/     Verified import and Maple Payments adapter
 tests/                      Fast tests that do not load the model
 docs/architecture.md        Design boundary and deliberate non-goals
+docs/data-safety.md          Public test-data acceptance policy
 docs/qualification.md       Hardware, versions, evidence, and measured results
 docs/stage-1-model-boundary.md  Request/response learning walkthrough
 docs/stage-2-typed-questions.md Typed-output design and verified example
+docs/stage-3-analytics-engine.md Deterministic analysis and verified findings
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 2 adds Pydantic AI only for typed model interaction. It does **not** add tools,
-MCP, RAG, business datasets, or a user interface. The word “agent” in the framework API
-does not mean this application can take actions: it currently performs one classification
-request and returns one validated object.
+Stage 3 adds only DevRev's synthetic, Apache-2.0 licensed Maple Payments data. It does
+**not** add agent tools, MCP, RAG, private business data, or a user interface. The model
+can classify a question, but it cannot invoke the analytics yet; that boundary is the
+purpose of Stage 4.
 
 ## Safety note
 
