@@ -10,14 +10,17 @@ oversight.
 |---|---:|---|
 | Stage 0 — local inference | Complete | Tagged `stage-0` |
 | Stage 1 — Python model client | Complete | Tagged `v0.2-python-client` |
-| Stage 2 — typed business questions | Next | Not started |
+| Stage 2 — typed business questions | Complete | Tagged `v0.3-structured-output` |
+| Stage 3 — business analytics | Next | Not started |
 
-This repository contains two completed foundations:
+This repository contains three completed foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
 - **Stage 1 — Model Boundary:** send, inspect, validate, and handle those HTTP requests
   in our own Python application before introducing an agent framework.
+- **Stage 2 — Typed Business Questions:** use Pydantic and Pydantic AI to turn natural
+  language into a validated application object, including retrying malformed output.
 
 ## What Stage 0 proves
 
@@ -57,6 +60,7 @@ In a second terminal:
 
 ```bash
 business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
+business-ops-classify "Why did Northeast revenue decline last quarter?"
 business-ops "Analyze the same question" --show-request --raw
 make qualify
 ```
@@ -73,18 +77,22 @@ scripts/start_server.sh     Local-only model server launcher
 scripts/qualify.py          End-to-end API and performance qualification
 src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
 src/business_ops/cli.py     Inspectable business-question command line
+src/business_ops/questions.py  Validated business-question contract
+src/business_ops/classifier.py Pydantic AI structured-output boundary
 tests/                      Fast tests that do not load the model
 docs/architecture.md        Design boundary and deliberate non-goals
 docs/qualification.md       Hardware, versions, evidence, and measured results
 docs/stage-1-model-boundary.md  Request/response learning walkthrough
+docs/stage-2-typed-questions.md Typed-output design and verified example
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stages 0–1 intentionally do **not** include an agent framework, Pydantic AI, MCP, RAG,
-business datasets, or a user interface. Those layers should only be added after the
-local model contract is understood and proven.
+Stage 2 adds Pydantic AI only for typed model interaction. It does **not** add tools,
+MCP, RAG, business datasets, or a user interface. The word “agent” in the framework API
+does not mean this application can take actions: it currently performs one classification
+request and returns one validated object.
 
 ## Safety note
 

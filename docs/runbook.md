@@ -33,6 +33,16 @@ Ask a business question through the Stage 1 Python client:
 business-ops "Revenue fell 12% while customer count stayed flat. What should we investigate?"
 ```
 
+Convert a question into the Stage 2 validated type:
+
+```bash
+business-ops-classify "Why did Northeast revenue decline last quarter?"
+```
+
+The command prints JSON only, so a later application can consume it directly. The local
+model receives a native JSON Schema derived from `BusinessQuestion`. Invalid output is
+returned to the model for correction up to two times before the command fails clearly.
+
 Inspect both sides of the API boundary:
 
 ```bash
@@ -68,6 +78,8 @@ it answers prompts; it must pass the full tool and structure contract.
 - Out of memory: stop other large ML workloads and reduce `MAX_KV_SIZE` in `.env`.
 - Tool continuation fails: keep assistant tool-call `content` as a string; the qualification
   harness already applies this compatibility guard.
+- Classification fails after retries: rerun once, then inspect the schema and server log;
+  the command never returns an unvalidated partial object.
 - Port busy: set matching `PORT` and `BASE_URL` values in `.env`.
 - Custom binding: use `SERVER_HOST`; zsh reserves `HOST` for the Mac's hostname.
 

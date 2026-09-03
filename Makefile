@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup server ask qualify test lint
+.PHONY: setup server ask classify qualify test lint
 
 setup:
 	/opt/homebrew/bin/python3.13 -m venv .venv
@@ -12,6 +12,9 @@ server:
 
 ask:
 	$(PYTHON) -m business_ops.cli "$(QUESTION)"
+
+classify:
+	$(PYTHON) -m business_ops.classify_cli "$(QUESTION)"
 
 qualify:
 	$(PYTHON) scripts/qualify.py

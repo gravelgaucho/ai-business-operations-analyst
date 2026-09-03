@@ -1,4 +1,4 @@
-# Stage 0 architecture
+# Architecture through Stage 2
 
 ## Decision
 
@@ -7,7 +7,13 @@ The model runtime sits behind that boundary and can be changed through environme
 configuration.
 
 ```text
-Python client / qualification client
+CLI / future application layers
+        |
+        v
+Pydantic business-question contract
+        |
+        v
+Pydantic AI structured-output adapter
         |
         | OpenAI-compatible JSON over localhost
         v
@@ -18,12 +24,17 @@ Qwen3.8-27B 4-bit weights (replaceable)
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
-It builds on the same MLX and MLX-LM stack; Stages 0–1 exercise text only. The clients
-have no MLX or Qwen imports and only know a model identifier plus a base URL.
+It builds on the same MLX and MLX-LM stack; Stages 0–2 exercise text only. The application
+has no MLX or Qwen imports and only knows a model identifier plus a base URL.
 
 Stage 1 formalizes this boundary in `business_ops.client.ModelServerClient`. It exposes
 small application types while preserving the complete raw response for learning and
 diagnostics. Transport-specific exceptions do not leak past this module.
+
+Stage 2 adds a second adapter in `business_ops.classifier`. Pydantic AI translates the
+`BusinessQuestion` schema into the provider's native structured-output request and parses
+the response back into that application type. The classifier accepts any Pydantic AI
+model implementation; the default builder supplies an OpenAI-compatible localhost model.
 
 ## Why this baseline
 
@@ -37,13 +48,15 @@ the same external qualification contract before replacement.
 
 ## Deliberate non-goals
 
-- No Pydantic AI or other agent framework
 - No MCP protocol or external tools
 - No retrieval, embeddings, vector store, or RAG
 - No business dataset
 - No UI
 - No production serving claims
 - No vision qualification yet
+
+Pydantic AI is currently used only for one typed classification request. No tools are
+registered and no autonomous loop is present.
 
 The `lookup_account_metrics` function used in qualification is a deterministic fixture.
 It proves protocol behavior; it is not a data integration.

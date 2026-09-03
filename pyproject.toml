@@ -1,6 +1,6 @@
 [project]
 name = "ai-business-operations-analyst"
-version = "0.2.0"
+version = "0.3.0"
 description = "A local-first, evidence-driven AI business operations analyst."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -11,10 +11,13 @@ dependencies = [
   "mlx-lm>=0.31.3,<0.32",
   "mlx-vlm>=0.6.8,<0.7",
   "psutil>=7,<8",
+  "pydantic>=2.13,<3",
+  "pydantic-ai-slim[openai]>=2.38,<3",
 ]
 
 [project.scripts]
 business-ops = "business_ops.cli:main"
+business-ops-classify = "business_ops.classify_cli:main"
 
 [project.optional-dependencies]
 dev = [
