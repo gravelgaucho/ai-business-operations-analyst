@@ -29,6 +29,7 @@ from business_ops.datasets.enterprise_bench import (
     EnterpriseBenchDataError,
     default_data_root,
 )
+from business_ops.datasets.query_types import OpportunityBreakdownQuery
 from business_ops.datasets.repository import BusinessDataRepository
 from business_ops.datasets.sqlite_store import (
     SqliteEnterpriseBenchRepository,
@@ -37,6 +38,7 @@ from business_ops.datasets.sqlite_store import (
 from business_ops.reports import (
     AccountRiskQuery,
     AccountRiskReport,
+    OpportunityBreakdownReport,
     PipelineChangeQuery,
     PipelineChangeReport,
     ProductRiskQuery,
@@ -44,6 +46,7 @@ from business_ops.reports import (
     SupportPipelineLinkQuery,
     SupportPipelineLinkReport,
     account_risk_report,
+    opportunity_breakdown_report,
     pipeline_change_report,
     product_risk_report,
     support_pipeline_link_report,
@@ -159,11 +162,25 @@ def test_support_pipeline_overlap(
     return support_pipeline_link_report(ctx.deps.data_source, query)
 
 
+def query_closed_won_opportunity_acv(
+    ctx: RunContext[AnalystDependencies], query: OpportunityBreakdownQuery
+) -> OpportunityBreakdownReport:
+    """Group closed-won opportunity ACV by approved semantic dimensions.
+
+    Args:
+        ctx: The validated local dataset dependency.
+        query: Explicit period, currency, dimensions, and bounded result count.
+    """
+
+    return opportunity_breakdown_report(ctx.deps.data_source, query)
+
+
 ANALYTICS_TOOLS = (
     Tool(get_account_support_risk, require_parameter_descriptions=True),
     Tool(get_product_area_support_risk, require_parameter_descriptions=True),
     Tool(compare_closed_won_pipeline, require_parameter_descriptions=True),
     Tool(test_support_pipeline_overlap, require_parameter_descriptions=True),
+    Tool(query_closed_won_opportunity_acv, require_parameter_descriptions=True),
 )
 
 

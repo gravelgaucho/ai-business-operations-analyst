@@ -1,4 +1,4 @@
-# Architecture through Stage 9
+# Architecture through Stage 10
 
 ## Decision
 
@@ -16,9 +16,9 @@ configuration.
                  |                                   |
         Pydantic AI adapter          plan -> select -> observe -> stop
                  |                                   |
-        OpenAI-compatible API        bounded read-only report catalog
+        OpenAI-compatible API       governed capability execution
                  |                                   |
-        local model server                analytics functions
+        local model server        deterministic reports + semantic query
                  |                                   |
      Qwen3.8 weights (replaceable)      data repository protocol
                                                      |
@@ -130,15 +130,33 @@ also “what sources and tools were approved when the system formed its plan?”
 changes whenever a governed definition changes, so an earlier investigation cannot silently
 inherit later semantics.
 
+Stage 10 adds a governed semantic query between the capability layer and repository boundary.
+The model never supplies SQL, column names, table names, operators, or expressions. It emits a
+typed request for one registered metric, an explicit period and currency, one or two approved
+dimensions, and a bounded row limit. Pydantic rejects extra or invalid inputs before execution.
+
+For SQLite, application-owned mappings compile the dimension enums into reviewed expressions;
+all user/model values remain bound parameters. The connection is still opened in read-only and
+query-only modes. The JSON repository independently executes the same typed request and serves
+as a parity oracle. The report returns the validated semantic request with its rows, metric
+definition, calculation, source, and interpretation boundary, so provenance captures what was
+asked as well as what was returned.
+
+This is the first capability that is flexible inside a controlled semantic envelope. It proves
+that broader business questions do not require either a fixed report for every phrasing or
+unrestricted model-generated SQL. Adding another metric or dimension remains a reviewed code,
+catalog, test, and evaluation change.
+
 ## Revised product boundary
 
 The product direction is now a general local AI business analyst, not a Maple-specific support
 and pipeline workflow. The completed stages form its initial execution and governance core.
-The next architectural layers will add a lean source and semantic catalog, a general capability
-registry, governed structured queries, and document retrieval. RAG will be one capability for
-unstructured evidence; it will not replace the controller, deterministic analytics, or evidence
-ledger. Maple Payments remains the first evaluation domain, and transaction/contract/pricing
-review remains a future benchmark domain and possible vertical package.
+The next architectural layers will build on the completed source catalog and governed query
+boundary with controlled document onboarding, retrieval, and cross-source reconciliation. RAG
+will be one capability for unstructured evidence; it will not replace the controller,
+deterministic analytics, or evidence ledger. Maple Payments remains the first evaluation
+domain, and transaction/contract/pricing review remains a future benchmark domain and possible
+vertical package.
 
 Two deterministic input guards sit inside the controller. Explicit causal, predictive,
 prescriptive, or comparative wording takes precedence over a contradictory model label, and
@@ -189,8 +207,9 @@ The relational layer qualifies separately: source provenance and row counts must
 every report must equal the JSON reference, runtime writes must fail, and the period query
 must use its composite index.
 
-The Stage 9 suite qualifies the end-to-end investigation separately: every public scenario
+The Stage 10 suite qualifies the end-to-end investigation separately: every public scenario
 must pass behavior, source provenance, evidence integrity, claim-level citation, grounding,
-safety, catalog integrity, catalog-to-execution alignment, and request-budget gates. The
-September 4, 2026 milestone run passed both scenarios at 20/20 gates each in 240.783 seconds
-using the local 27B baseline.
+safety, catalog alignment, governed-query contract and result-bound checks, and request-budget
+gates. The new comparative scenario requires both the fixed period-comparison report and the
+governed regional breakdown. The September 4, 2026 milestone run passed all three scenarios at
+22/22 gates each in 375.009 seconds using the local 27B baseline.

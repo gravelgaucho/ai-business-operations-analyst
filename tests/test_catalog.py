@@ -13,7 +13,7 @@ from business_ops.investigation import planner_instructions
 def test_default_catalog_is_self_validating_and_complete() -> None:
     restored = CapabilityCatalog.model_validate_json(DEFAULT_CATALOG.model_dump_json())
 
-    assert restored.catalog_version == "stage-9-v1"
+    assert restored.catalog_version == "stage-10-v1"
     assert len(restored.sources) == 1
     assert len(restored.entities) == 4
     assert len(restored.metrics) == 5
@@ -22,6 +22,7 @@ def test_default_catalog_is_self_validating_and_complete() -> None:
         "get_product_area_support_risk",
         "compare_closed_won_pipeline",
         "test_support_pipeline_overlap",
+        "query_closed_won_opportunity_acv",
     }
     assert all(item.deterministic and item.read_only for item in restored.capabilities)
     assert restored.sources[0].classification == "public_synthetic"
@@ -67,7 +68,7 @@ def test_catalog_cli_prints_machine_readable_full_and_planning_views(capsys) -> 
     assert catalog_cli_main(["--planning-view"]) == 0
     planning = json.loads(capsys.readouterr().out)
     assert planning["catalog_digest"] == DEFAULT_CATALOG.catalog_digest
-    assert len(planning["available_capabilities"]) == 4
+    assert len(planning["available_capabilities"]) == 5
     assert "metrics" not in planning
 
 

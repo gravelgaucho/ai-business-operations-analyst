@@ -15,12 +15,12 @@ from business_ops.evaluation import DEFAULT_SCENARIOS, run_evaluation_suite
 from business_ops.investigation import run_investigation
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACT = PROJECT_ROOT / "artifacts" / "stage9_qualification.json"
+ARTIFACT = PROJECT_ROOT / "artifacts" / "stage10_qualification.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the Stage 9 catalog-grounded local-model reliability scenarios."
+        description="Run the Stage 10 governed-query local-model reliability scenarios."
     )
     parser.add_argument(
         "--scenario",
@@ -53,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected,
     )
     artifact = {
-        "stage": 9,
+        "stage": 10,
         "evidence_schema_version": "1.0",
         "capability_catalog_version": DEFAULT_CATALOG.catalog_version,
         "capability_catalog_digest": DEFAULT_CATALOG.catalog_digest,

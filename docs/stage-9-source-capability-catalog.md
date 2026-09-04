@@ -113,7 +113,7 @@ describes and governs capabilities; it does not dynamically import or execute ar
 Adding a capability still requires reviewed code, tests, an explicit registry entry, and
 evaluation coverage.
 
-There is still one source snapshot and no independent-source reconciliation. Stage 10 can now
-add a second safe source or a governed query capability without rewriting planning or evidence
-contracts. Document indexing and RAG remain deferred until the source/catalog boundary is
-proven with the current structured evidence.
+There is still one source snapshot and no independent-source reconciliation. Stage 10 later
+used this catalog seam to add a governed query capability without rewriting planning or evidence
+contracts. Document indexing and RAG remain deferred until the structured query boundary is
+qualified.

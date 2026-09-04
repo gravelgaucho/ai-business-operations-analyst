@@ -23,6 +23,10 @@ from business_ops.catalog import DEFAULT_CATALOG, CapabilityCatalog
 from business_ops.config import Settings
 from business_ops.datasets.download import DatasetImportError, verify_dataset
 from business_ops.datasets.enterprise_bench import EnterpriseBenchDataError, default_data_root
+from business_ops.datasets.query_types import (
+    OpportunityBreakdownQuery,
+    OpportunityDimension,
+)
 from business_ops.datasets.repository import BusinessDataRepository, DataSource
 from business_ops.datasets.sqlite_store import (
     SqliteEnterpriseBenchRepository,
@@ -46,6 +50,7 @@ from business_ops.reports import (
     SupportPipelineLinkQuery,
     TicketPriority,
     account_risk_report,
+    opportunity_breakdown_report,
     pipeline_change_report,
     product_risk_report,
     support_pipeline_link_report,
@@ -99,6 +104,7 @@ class AnalysisKind(StrEnum):
     PRODUCT_AREA_SUPPORT_RISK = "get_product_area_support_risk"
     CLOSED_WON_PIPELINE = "compare_closed_won_pipeline"
     SUPPORT_PIPELINE_OVERLAP = "test_support_pipeline_overlap"
+    GOVERNED_OPPORTUNITY_BREAKDOWN = "query_closed_won_opportunity_acv"
 
 
 EvidenceId = Annotated[str, Field(pattern=r"^EV-[0-9a-f]{16}$")]
@@ -151,6 +157,11 @@ class AnalysisDecision(InvestigationModel):
         default_factory=lambda: [TicketPriority.P1], min_length=1, max_length=4
     )
     currency: Currency = Currency.USD
+    dimensions: list[OpportunityDimension] = Field(
+        default_factory=lambda: [OpportunityDimension.REGION],
+        min_length=1,
+        max_length=2,
+    )
 
     @model_validator(mode="after")
     def dated_analyses_have_explicit_periods(self) -> AnalysisDecision:
@@ -166,6 +177,10 @@ class AnalysisDecision(InvestigationModel):
             )
             if any(item is None for item in dates):
                 raise ValueError("pipeline analyses require four explicit period dates")
+        if self.analysis == AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN and (
+            self.current_start is None or self.current_end is None
+        ):
+            raise ValueError("governed opportunity queries require an explicit current period")
         return self
 
 
@@ -321,6 +336,10 @@ use exactly get_account_support_risk and get_product_area_support_risk; do not i
 pipeline analysis. For a causal support-versus-pipeline question, use exactly
 compare_closed_won_pipeline and test_support_pipeline_overlap; the overlap report already
 includes the account support-risk set, so a separate account or product-risk report is redundant.
+Use query_closed_won_opportunity_acv when the question requests a flexible breakdown by
+account, region, close month, or close quarter. It accepts only cataloged dimensions and must
+not be described as arbitrary SQL. Pair it with compare_closed_won_pipeline when a question
+asks for both a period comparison and a dimensional breakdown.
 """.strip()
 
 
@@ -331,6 +350,8 @@ choice on the investigation plan and the observations already returned. Do not a
 business question and do not repeat an analysis. Supply explicit ISO dates for pipeline
 analyses; Q1 2026 is 2026-01-01 through 2026-03-31 and Q4 2025 is 2025-10-01 through
 2025-12-31. Use P1 when the question asks about P1 tickets and USD when it asks about USD.
+For query_closed_won_opportunity_acv, set current_start/current_end to the requested breakdown
+period and choose only account, region, close_month, or close_quarter dimensions.
 The application—not you—will execute the calculation and enforce the stopping rule.
 """.strip()
 
@@ -521,6 +542,14 @@ def _decision_arguments(decision: AnalysisDecision) -> dict[str, Any]:
             "top_n": decision.top_n,
             "priorities": [item.value for item in decision.priorities],
         }
+    if decision.analysis == AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN:
+        return {
+            "start_date": decision.current_start,
+            "end_date": decision.current_end,
+            "dimensions": [item.value for item in decision.dimensions],
+            "currency": decision.currency,
+            "top_n": decision.top_n,
+        }
     common = {
         "current_start": decision.current_start,
         "current_end": decision.current_end,
@@ -575,6 +604,7 @@ def _apply_explicit_periods(
     if periods is None or decision.analysis not in {
         AnalysisKind.CLOSED_WON_PIPELINE,
         AnalysisKind.SUPPORT_PIPELINE_OVERLAP,
+        AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN,
     }:
         return decision
     current_start, current_end, previous_start, previous_end = periods
@@ -652,6 +682,10 @@ def _execute_analysis(source: DataSource, decision: AnalysisDecision) -> Any:
             return product_risk_report(source, ProductRiskQuery.model_validate(arguments))
         if decision.analysis == AnalysisKind.CLOSED_WON_PIPELINE:
             return pipeline_change_report(source, PipelineChangeQuery.model_validate(arguments))
+        if decision.analysis == AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN:
+            return opportunity_breakdown_report(
+                source, OpportunityBreakdownQuery.model_validate(arguments)
+            )
         return support_pipeline_link_report(
             source, SupportPipelineLinkQuery.model_validate(arguments)
         )
@@ -676,7 +710,27 @@ def has_unsupported_statistical_language(text: str) -> bool:
 
 def has_causal_attribution_language(text: str) -> bool:
     lowered = text.lower()
-    return any(phrase in lowered for phrase in CAUSAL_ATTRIBUTION_LANGUAGE)
+    if MANDATORY_CAUSAL_SENTENCE in lowered:
+        return True
+    for phrase in CAUSAL_ATTRIBUTION_LANGUAGE:
+        if phrase == MANDATORY_CAUSAL_SENTENCE:
+            continue
+        start = 0
+        while (index := lowered.find(phrase, start)) >= 0:
+            context = lowered[max(0, index - 120) : index + len(phrase) + 80]
+            explicitly_negated = any(
+                marker in context for marker in CAUSAL_UNCERTAINTY_MARKERS
+            ) or bool(
+                re.search(
+                    r"\b(?:does|do|did|can|could|is|was|were|has|have|had)\s+not\b|"
+                    r"\b(?:cannot|can't|couldn't|no)\b",
+                    context,
+                )
+            )
+            if not explicitly_negated:
+                return True
+            start = index + len(phrase)
+    return False
 
 
 def decisive_causal_phrases(text: str) -> tuple[str, ...]:
@@ -1043,7 +1097,7 @@ def _validate_completed_investigation(
     elif has_causal_attribution_language(conclusion_text):
         errors.append(
             "Remove causal-attribution language from this non-causal investigation; report "
-            "only the requested current prioritization evidence."
+            "only the requested descriptive or comparative evidence."
         )
 
     if errors:

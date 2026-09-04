@@ -17,6 +17,10 @@ from business_ops.analytics import (
 )
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.datasets.enterprise_bench import AccountRisk, ProductAreaRisk
+from business_ops.datasets.query_types import (
+    OpportunityBreakdownQuery,
+    OpportunityBreakdownRow,
+)
 from business_ops.datasets.repository import DataSource, as_repository
 
 
@@ -132,6 +136,16 @@ class SupportPipelineLinkReport(ReportModel):
     overlapping_absolute_change: int
     overlap_share_of_top_decline_change_percent: float
     overlaps: list[SupportPipelineAccount]
+    interpretation_boundary: str
+
+
+class OpportunityBreakdownReport(ReportModel):
+    question: str
+    source: SourceMetadata
+    semantic_query: OpportunityBreakdownQuery
+    metric_definition: str
+    calculation: str
+    rows: list[OpportunityBreakdownRow]
     interpretation_boundary: str
 
 
@@ -280,5 +294,36 @@ def support_pipeline_link_report(
         interpretation_boundary=(
             "Overlap is an association screen, not evidence that support tickets caused the "
             "opportunity change. Ticket timing and opportunity stage history are not tested."
+        ),
+    )
+
+
+def opportunity_breakdown_report(
+    source: DataSource, query: OpportunityBreakdownQuery
+) -> OpportunityBreakdownReport:
+    """Execute one governed grouping without accepting arbitrary SQL or identifiers."""
+
+    rows = as_repository(source).query_closed_won_opportunity_acv(query)
+    dimensions = ", ".join(item.value for item in query.dimensions)
+    return OpportunityBreakdownReport(
+        question=(
+            f"How does closed-won {query.currency.value} opportunity ACV break down by "
+            f"{dimensions} from {query.start_date} through {query.end_date}?"
+        ),
+        source=source_metadata(),
+        semantic_query=query,
+        metric_definition=(
+            "Sum of closed-won opportunity ACV grouped by approved dimensions and target close "
+            "date. This is not recognized revenue."
+        ),
+        calculation=(
+            "Filter current-final-stage closed_won opportunities to the explicit currency and "
+            "target-close period, group by whitelisted semantic dimensions, sum ACV, sort "
+            "descending, and return the bounded top rows."
+        ),
+        rows=rows,
+        interpretation_boundary=(
+            "A descriptive grouped result; it does not establish causation or forecast future "
+            "performance."
         ),
     )

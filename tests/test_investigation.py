@@ -21,6 +21,7 @@ from business_ops.investigation import (
     create_step_selector,
     create_synthesizer,
     decisive_causal_phrases,
+    has_causal_attribution_language,
     has_revenue_metric_conflation,
     run_investigation,
 )
@@ -261,6 +262,13 @@ def test_causal_language_check_distinguishes_assertion_from_uncertainty() -> Non
     assert decisive_causal_phrases("Support issues were the primary driver.") == (
         "primary driver",
     )
+    assert has_causal_attribution_language(
+        "This descriptive result does not establish causation."
+    ) is False
+    assert has_causal_attribution_language("The analysis can establish causation.") is True
+    assert has_causal_attribution_language(
+        "The available evidence does not support attribution; causation remains unresolved."
+    ) is True
 
 
 def test_metric_check_allows_explicit_non_revenue_boundary() -> None:
@@ -295,6 +303,109 @@ def test_controller_selects_two_analyses_and_preserves_visible_state(
     assert "evidence gate is satisfied" in state.stop_reason
     assert state.usage.total_requests == 4
     assert state.usage.total_tool_calls == 2
+
+
+def test_controller_combines_period_comparison_with_governed_breakdown(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    question = (
+        "Compare Q1 2026 closed-won USD opportunity ACV with Q4 2025, then break "
+        "Q1 2026 down by region."
+    )
+    plan = json.loads(json.dumps(PLAN))
+    plan["question"] = {
+        "question_type": "comparative",
+        "scope": "opportunity_performance",
+        "metric": "closed-won opportunity ACV",
+        "time_period": "Q1 2026 versus Q4 2025",
+        "entities": ["region"],
+        "requires_investigation": True,
+        "missing_information": [],
+        "normalized_question": question,
+    }
+    plan["objective"] = "Measure the period change and identify the Q1 regional mix."
+    plan["hypotheses"] = [
+        {
+            "hypothesis_id": "H1",
+            "statement": "Q1 closed-won opportunity ACV is concentrated by region.",
+            "test": "Compare periods and group Q1 ACV by the approved region dimension.",
+        }
+    ]
+    plan["steps"] = [
+        PLAN["steps"][0],
+        {
+            "step_id": "step_2",
+            "analysis": "query_closed_won_opportunity_acv",
+            "purpose": "Measure the Q1 regional breakdown.",
+            "success_criterion": "The bounded regional values are returned.",
+        },
+    ]
+    breakdown_decision = PIPELINE_DECISION | {
+        "analysis": "query_closed_won_opportunity_acv",
+        "rationale": "Group the requested current period by the approved region dimension.",
+        "dimensions": ["region"],
+        "top_n": 10,
+    }
+    conclusion = json.loads(json.dumps(CONCLUSION))
+    conclusion["executive_summary"] = (
+        "Closed-won opportunity ACV declined and the Q1 regional mix is measurable."
+    )
+    conclusion["findings"][0]["statement"] = (
+        "Closed-won opportunity ACV declined from Q4 to Q1."
+    )
+    conclusion["findings"][1]["statement"] = (
+        "The Q1 regional breakdown is reported by a governed query."
+    )
+    conclusion["hypothesis_assessments"][0] = {
+        "hypothesis_id": "H1",
+        "status": "supported",
+        "rationale": "The requested regional grouping returned a measured result.",
+        "evidence_ids": ["__EVIDENCE_2__"],
+    }
+    conclusion["business_implications"][0]["statement"] = (
+        "The regional mix gives management a bounded review starting point."
+    )
+    conclusion["recommendation"]["statement"] = (
+        "Have an operations leader review the period change and regional mix."
+    )
+    conclusion["recommendation"]["rationale"] = (
+        "The deterministic reports identify the measured change and regional distribution."
+    )
+    conclusion["confidence"]["rationale"] = (
+        "The values come from two deterministic reports over one verified snapshot."
+    )
+    conclusion["unresolved_questions"] = []
+    conclusion["limitations"] = [
+        "Closed-won opportunity ACV is not recognized revenue."
+    ]
+
+    state = run_investigation(
+        question,
+        planner=create_planner(json_agent(plan)),
+        selector=selector_agent([PIPELINE_DECISION, breakdown_decision]),
+        synthesizer=create_synthesizer(json_agent(conclusion)),
+        data_root=dataset,
+    )
+
+    assert [action.name for action in state.actions] == [
+        "compare_closed_won_pipeline",
+        "query_closed_won_opportunity_acv",
+    ]
+    assert state.actions[1].arguments == {
+        "start_date": "2026-01-01",
+        "end_date": "2026-03-31",
+        "dimensions": ["region"],
+        "currency": "USD",
+        "top_n": 10,
+    }
+    assert state.observations[1].content["rows"] == [
+        {
+            "dimensions": {"region": "East"},
+            "closed_won_opportunity_acv": 300,
+        }
+    ]
+    assert state.evidence_ledger.records[1].method.arguments == state.actions[1].arguments
 
 
 def test_evidence_records_are_content_addressed_and_tamper_evident(
@@ -334,7 +445,7 @@ def test_audit_bundle_is_self_contained_and_round_trips(
     restored = AuditBundle.model_validate_json(bundle.model_dump_json())
 
     assert restored.investigation_id == bundle.investigation_id
-    assert restored.capability_catalog.catalog_version == "stage-9-v1"
+    assert restored.capability_catalog.catalog_version == "stage-10-v1"
     assert restored.capability_catalog.catalog_digest == state.capability_catalog.catalog_digest
     assert len(restored.evidence_ledger.records) == 2
     assert {claim.claim_type for claim in restored.claims} == {

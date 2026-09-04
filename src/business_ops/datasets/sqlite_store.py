@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -22,6 +23,11 @@ from business_ops.datasets.enterprise_bench import (
     Ticket,
     default_data_root,
     load_records,
+)
+from business_ops.datasets.query_types import (
+    OpportunityBreakdownQuery,
+    OpportunityBreakdownRow,
+    OpportunityDimension,
 )
 
 SCHEMA_VERSION = 1
@@ -45,6 +51,12 @@ class DatabaseSummary(BaseModel):
     product_parts: int
     ticket_components: int
     database_bytes: int
+
+
+@dataclass(frozen=True)
+class CompiledSemanticQuery:
+    statement: str
+    parameters: tuple[str | int, ...]
 
 
 def default_database_path() -> Path:
@@ -347,6 +359,51 @@ def _placeholders(values: frozenset[str]) -> str:
     return ", ".join("?" for _ in values)
 
 
+_OPPORTUNITY_DIMENSION_SQL = {
+    OpportunityDimension.ACCOUNT: "a.account_name || ' (' || a.account_id || ')'",
+    OpportunityDimension.REGION: "a.region",
+    OpportunityDimension.CLOSE_MONTH: "substr(o.target_close_date, 1, 7)",
+    OpportunityDimension.CLOSE_QUARTER: (
+        "substr(o.target_close_date, 1, 4) || '-Q' || "
+        "(((CAST(substr(o.target_close_date, 6, 2) AS INTEGER) - 1) / 3) + 1)"
+    ),
+}
+
+
+def compile_closed_won_opportunity_acv_query(
+    query: OpportunityBreakdownQuery,
+) -> CompiledSemanticQuery:
+    """Compile a typed semantic request without accepting SQL identifiers or fragments."""
+
+    selections = [
+        f"{_OPPORTUNITY_DIMENSION_SQL[dimension]} AS {dimension.value}"
+        for dimension in query.dimensions
+    ]
+    groupings = [_OPPORTUNITY_DIMENSION_SQL[dimension] for dimension in query.dimensions]
+    order_dimensions = [dimension.value for dimension in query.dimensions]
+    statement = f"""
+        SELECT {", ".join(selections)}, SUM(o.acv) AS closed_won_opportunity_acv
+        FROM opportunities AS o
+        JOIN accounts AS a ON a.account_id = o.account_id
+        WHERE o.stage = ?
+          AND o.currency = ?
+          AND o.target_close_date BETWEEN ? AND ?
+        GROUP BY {", ".join(groupings)}
+        ORDER BY closed_won_opportunity_acv DESC, {", ".join(order_dimensions)} ASC
+        LIMIT ?
+    """.strip()
+    return CompiledSemanticQuery(
+        statement=statement,
+        parameters=(
+            "closed_won",
+            query.currency.value,
+            query.start_date.isoformat(),
+            query.end_date.isoformat(),
+            query.top_n,
+        ),
+    )
+
+
 class SqliteEnterpriseBenchRepository:
     """Read-only repository backed by the verified derived SQLite store."""
 
@@ -482,4 +539,21 @@ class SqliteEnterpriseBenchRepository:
                 open_ticket_count=row["open_ticket_count"],
             )
             for index, row in enumerate(rows, start=1)
+        ]
+
+    def query_closed_won_opportunity_acv(
+        self, query: OpportunityBreakdownQuery
+    ) -> list[OpportunityBreakdownRow]:
+        compiled = compile_closed_won_opportunity_acv_query(query)
+        with _read_only_connection(self.database_path) as connection:
+            rows = connection.execute(compiled.statement, compiled.parameters).fetchall()
+        return [
+            OpportunityBreakdownRow(
+                dimensions={
+                    dimension.value: str(row[dimension.value])
+                    for dimension in query.dimensions
+                },
+                closed_won_opportunity_acv=row["closed_won_opportunity_acv"],
+            )
+            for row in rows
         ]

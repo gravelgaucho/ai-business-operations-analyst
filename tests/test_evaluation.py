@@ -7,6 +7,7 @@ from business_ops.catalog import DEFAULT_CATALOG
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.evaluation import (
     CAUSAL_ATTRIBUTION,
+    GOVERNED_OPPORTUNITY_ANALYSIS,
     SUPPORT_PRIORITIZATION,
     evaluate_investigation,
     run_evaluation_suite,
@@ -68,7 +69,16 @@ def state_for(
     tool_observations = []
     evidence_records = []
     for index, (tool, content) in enumerate(zip(tools, observations, strict=True), start=1):
-        dated = tool in {"compare_closed_won_pipeline", "test_support_pipeline_overlap"}
+        dated = tool in {
+            "compare_closed_won_pipeline",
+            "test_support_pipeline_overlap",
+            "query_closed_won_opportunity_acv",
+        }
+        arguments = (
+            content["semantic_query"]
+            if tool == "query_closed_won_opportunity_acv"
+            else {}
+        )
         decisions.append(
             {
                 "analysis": tool,
@@ -83,7 +93,7 @@ def state_for(
                 "currency": "USD",
             }
         )
-        actions.append({"name": tool, "arguments": {}, "returned": True})
+        actions.append({"name": tool, "arguments": arguments, "returned": True})
         tool_observations.append(
             {
                 "observation_id": f"observation_{index}",
@@ -95,7 +105,7 @@ def state_for(
             build_evidence_record(
                 observation_id=f"observation_{index}",
                 tool_name=tool,
-                arguments={},
+                arguments=arguments,
                 result=content,
                 source=Path("."),
             )
@@ -282,6 +292,78 @@ def test_support_scenario_accepts_a_descriptive_classification_and_list_anchor()
 
     assert result.passed is True
     assert result.score_percent == 100.0
+
+
+def governed_opportunity_state() -> InvestigationState:
+    return state_for(
+        question=GOVERNED_OPPORTUNITY_ANALYSIS.question,
+        question_type="comparative",
+        tools=["compare_closed_won_pipeline", "query_closed_won_opportunity_acv"],
+        observations=[
+            {
+                "source": source(),
+                "metric_definition": (
+                    "Opportunity ACV grouped by target close date and current final stage. "
+                    "This is not recognized revenue."
+                ),
+                "comparison": {
+                    "baseline": 80_700_000,
+                    "current": 31_175_000,
+                    "percent_change": -61.37,
+                },
+            },
+            {
+                "source": source(),
+                "semantic_query": {
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-03-31",
+                    "dimensions": ["region"],
+                    "currency": "USD",
+                    "top_n": 10,
+                },
+                "metric_definition": (
+                    "Sum of closed-won opportunity ACV grouped by approved dimensions and "
+                    "target close date. This is not recognized revenue."
+                ),
+                "rows": [
+                    {
+                        "dimensions": {"region": "Americas/East"},
+                        "closed_won_opportunity_acv": 9_690_000,
+                    },
+                    {
+                        "dimensions": {"region": "Americas/West"},
+                        "closed_won_opportunity_acv": 9_335_000,
+                    },
+                ],
+            },
+        ],
+        causal=False,
+    )
+
+
+def test_governed_opportunity_scenario_passes_query_contract_gates() -> None:
+    result = evaluate_investigation(
+        GOVERNED_OPPORTUNITY_ANALYSIS, governed_opportunity_state()
+    )
+
+    checks = {check.name: check for check in result.checks}
+    assert result.passed is True
+    assert checks["governed_query_contract"].passed is True
+    assert checks["governed_query_result_bounds"].passed is True
+
+
+def test_governed_query_action_cannot_diverge_from_evidenced_query() -> None:
+    state = governed_opportunity_state()
+    actions = list(state.actions)
+    actions[1] = actions[1].model_copy(
+        update={"arguments": actions[1].arguments | {"top_n": 1}}
+    )
+    state = state.model_copy(update={"actions": actions})
+
+    result = evaluate_investigation(GOVERNED_OPPORTUNITY_ANALYSIS, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["governed_query_contract"].passed is False
 
 
 def test_unsupported_significantly_comparison_fails_the_statistics_gate() -> None:

@@ -19,8 +19,9 @@ important claims can be audited back to internal evidence.
 | Stage 7 — repeatable reliability evaluation | Complete | Tagged `v0.8-evaluation-suite` |
 | Stage 8 — claim-level evidence provenance | Complete | Tagged `v0.9-evidence-provenance` |
 | Stage 9 — source and capability catalog | Complete | Tagged `v0.10-source-capability-catalog` |
+| Stage 10 — governed structured query | Complete | Tagged `v0.11-governed-structured-query` |
 
-This repository contains ten foundations:
+This repository contains eleven foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -48,6 +49,9 @@ This repository contains ten foundations:
 - **Stage 9 — Source and Capability Catalog:** give planning, execution, provenance, and
   evaluation one typed, content-addressed definition of approved sources, business entities,
   metric semantics, analytical capabilities, and interpretation limits.
+- **Stage 10 — Governed Structured Query:** let the analyst answer approved dimensional
+  breakdown questions through a typed semantic request that compiles to parameterized,
+  read-only SQL while preserving JSON parity and evidence provenance.
 
 ## What Stage 0 proves
 
@@ -107,6 +111,13 @@ scenario analyses, and produced evidence whose registered method versions, imple
 read-only tables, and source identity all matched the embedded catalog snapshot. See
 [docs/stage-9-source-capability-catalog.md](docs/stage-9-source-capability-catalog.md).
 
+Stage 10 adds a fifth capability for closed-won opportunity ACV breakdowns by one or two
+approved dimensions: account, region, close month, or close quarter. Dates, currency, and row
+limits are validated; SQL values are parameterized; identifiers come only from application
+code; and the JSON and SQLite implementations must return identical typed results. All three
+public scenarios passed 22/22 gates in 375.009 seconds with the local baseline. See
+[docs/stage-10-governed-structured-query.md](docs/stage-10-governed-structured-query.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -126,6 +137,7 @@ In a second terminal:
 business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
 business-ops-classify "Why did Northeast revenue decline last quarter?"
 business-ops-catalog --planning-view
+business-ops-query --start 2026-01-01 --end 2026-03-31 --dimension region
 business-ops-analytics account-risk
 business-ops-analytics product-risk --top 5
 business-ops-analytics pipeline-change --top 5
@@ -154,6 +166,7 @@ scripts/qualify.py          End-to-end API and performance qualification
 src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
 src/business_ops/catalog.py Approved source, entity, metric, and analytical-capability catalog
 src/business_ops/catalog_cli.py Human- and machine-readable catalog inspection
+src/business_ops/query_cli.py Governed semantic-query inspection
 src/business_ops/cli.py     Inspectable business-question command line
 src/business_ops/questions.py  Validated business-question contract
 src/business_ops/classifier.py Pydantic AI structured-output boundary
@@ -177,17 +190,20 @@ docs/stage-6-sql-data-layer.md Relational schema, parity proof, and measured res
 docs/stage-7-evaluation-suite.md Public scenario contract and commercial evaluation boundary
 docs/stage-8-evidence-provenance.md Claim-level citations and audit-bundle walkthrough
 docs/stage-9-source-capability-catalog.md Governed discovery and semantic-boundary walkthrough
+docs/stage-10-governed-structured-query.md Typed query contract and SQL safety boundary
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 9 still exposes only four read-only reports over DevRev's synthetic, Apache-2.0
+Stage 10 exposes five read-only analytical capabilities over DevRev's synthetic, Apache-2.0
 licensed Maple Payments data. Its investigation loop is capped at four distinct analyses.
 The catalog and evidence contracts are general, but the current source adapter and analyses
 are not. Cataloging an entity or modality does not make it queryable; execution requires an
 explicitly registered capability.
-It does **not** add MCP, RAG, private business data, write actions, arbitrary queries,
+The new semantic query is not arbitrary SQL: it exposes one approved metric, four approved
+dimensions, two currencies, explicit dates, and a maximum of 50 rows. It does **not** add MCP,
+RAG, private business data, write actions, arbitrary SQL or file access,
 long-lived memory, or a user interface.
 
 ## Safety note

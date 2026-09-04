@@ -7,12 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from business_ops.datasets.query_types import OpportunityBreakdownQuery
 from business_ops.datasets.repository import JsonEnterpriseBenchRepository
 from business_ops.datasets.sqlite_store import (
     SqliteEnterpriseBenchRepository,
     SqliteStoreError,
     _read_only_connection,
     build_database,
+    compile_closed_won_opportunity_acv_query,
     validate_database,
 )
 from business_ops.reports import (
@@ -219,6 +221,47 @@ def test_all_reports_have_sql_json_parity(
         ),
     )
     assert all(json_report == sql_report for json_report, sql_report in comparisons)
+
+
+def test_governed_opportunity_query_has_json_sql_parity(
+    repositories: tuple[
+        JsonEnterpriseBenchRepository, SqliteEnterpriseBenchRepository, Path
+    ],
+) -> None:
+    json_repository, sql_repository, _ = repositories
+    query = OpportunityBreakdownQuery(
+        start_date="2026-01-01",
+        end_date="2026-03-31",
+        dimensions=["region", "account"],
+        currency="USD",
+        top_n=10,
+    )
+
+    assert json_repository.query_closed_won_opportunity_acv(query) == (
+        sql_repository.query_closed_won_opportunity_acv(query)
+    )
+    assert sql_repository.query_closed_won_opportunity_acv(query)[0].model_dump() == {
+        "dimensions": {"region": "West", "account": "Beta (B)"},
+        "closed_won_opportunity_acv": 500,
+    }
+
+
+def test_governed_query_compiler_uses_only_whitelisted_sql_and_parameters() -> None:
+    query = OpportunityBreakdownQuery(
+        start_date="2026-01-01",
+        end_date="2026-03-31",
+        dimensions=["close_quarter", "region"],
+        currency="USD",
+        top_n=7,
+    )
+
+    compiled = compile_closed_won_opportunity_acv_query(query)
+
+    assert compiled.statement.count("?") == 5
+    assert "2026-01-01" not in compiled.statement
+    assert "USD" not in compiled.statement
+    assert compiled.parameters == ("closed_won", "USD", "2026-01-01", "2026-03-31", 7)
+    assert "close_quarter" in compiled.statement
 
 
 def test_rejects_database_with_modified_provenance(source_data: Path, tmp_path: Path) -> None:

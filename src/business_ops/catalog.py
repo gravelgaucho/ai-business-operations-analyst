@@ -372,10 +372,31 @@ def _build_default_catalog() -> CapabilityCatalog:
                 "Association screen only; it cannot establish direction, timing, or causation."
             ),
         ),
+        CapabilityDefinition(
+            capability_id="query_closed_won_opportunity_acv",
+            display_name="Governed opportunity ACV breakdown",
+            description=(
+                "Group closed-won opportunity ACV by one or two approved semantic dimensions."
+            ),
+            question_types=(QuestionType.DESCRIPTIVE, QuestionType.COMPARATIVE),
+            source_ids=(source_id,),
+            entity_ids=("account", "opportunity"),
+            metric_ids=("closed_won_opportunity_acv",),
+            parameters=("start_date", "end_date", "dimensions", "currency", "top_n"),
+            returns=("grouped_dimension_values", "closed_won_opportunity_acv"),
+            implementation="business_ops.reports.opportunity_breakdown_report",
+            method_version="stage-10-v1",
+            json_files=("crm_json_data/accounts.json", "crm_json_data/opportunities.json"),
+            sqlite_tables=("accounts", "opportunities"),
+            interpretation_boundary=(
+                "Descriptive grouping only; opportunity ACV is not recognized revenue and the "
+                "result does not establish causation or forecast future performance."
+            ),
+        ),
     )
     payload = {
         "schema_version": "1.0",
-        "catalog_version": "stage-9-v1",
+        "catalog_version": "stage-10-v1",
         "sources": [item.model_dump(mode="json") for item in sources],
         "entities": [item.model_dump(mode="json") for item in entities],
         "metrics": [item.model_dump(mode="json") for item in metrics],

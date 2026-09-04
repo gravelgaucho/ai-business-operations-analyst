@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from business_ops.catalog import CapabilityCatalog
 from business_ops.datasets.download import ENTERPRISE_BENCH
+from business_ops.datasets.query_types import OpportunityBreakdownQuery
 from business_ops.investigation import (
     MANDATORY_CAUSAL_SENTENCE,
     AnalysisKind,
@@ -148,7 +149,52 @@ SUPPORT_PRIORITIZATION = EvaluationScenario(
 )
 
 
-DEFAULT_SCENARIOS = (CAUSAL_ATTRIBUTION, SUPPORT_PRIORITIZATION)
+GOVERNED_OPPORTUNITY_ANALYSIS = EvaluationScenario(
+    scenario_id="governed_opportunity_analysis",
+    question=(
+        "Compare Q1 2026 closed-won USD opportunity ACV with Q4 2025, then break "
+        "Q1 2026 down by region."
+    ),
+    expected_question_types=(QuestionType.COMPARATIVE,),
+    required_analyses=(
+        AnalysisKind.CLOSED_WON_PIPELINE,
+        AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN,
+    ),
+    evidence_expectations=(
+        EvidenceExpectation(
+            analysis=AnalysisKind.CLOSED_WON_PIPELINE,
+            path="comparison.baseline",
+            expected=80_700_000,
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.CLOSED_WON_PIPELINE,
+            path="comparison.current",
+            expected=31_175_000,
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN,
+            path="semantic_query.dimensions.0",
+            expected="region",
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN,
+            path="rows.0.dimensions.region",
+            expected="Americas/East",
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN,
+            path="rows.0.closed_won_opportunity_acv",
+            expected=9_690_000,
+        ),
+    ),
+)
+
+
+DEFAULT_SCENARIOS = (
+    CAUSAL_ATTRIBUTION,
+    SUPPORT_PRIORITIZATION,
+    GOVERNED_OPPORTUNITY_ANALYSIS,
+)
 _MISSING = object()
 
 
@@ -329,6 +375,76 @@ def evaluate_investigation(
         "deterministic_evidence",
         not evidence_failures,
         "all evidence anchors matched" if not evidence_failures else "; ".join(evidence_failures),
+    )
+
+    governed_actions = [
+        action
+        for action in state.actions
+        if action.name == AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN.value and action.returned
+    ]
+    governed_records = [
+        item
+        for item in evidence_records
+        if item.method.tool_name == AnalysisKind.GOVERNED_OPPORTUNITY_BREAKDOWN.value
+    ]
+    governed_contract_valid = len(governed_actions) == len(governed_records)
+    governed_result_bounded = governed_contract_valid
+    governed_failures: list[str] = []
+    for action, evidence_record in zip(governed_actions, governed_records, strict=False):
+        try:
+            query = OpportunityBreakdownQuery.model_validate(action.arguments)
+            reported_query = OpportunityBreakdownQuery.model_validate(
+                evidence_record.result.get("semantic_query", {})
+            )
+        except (AttributeError, ValueError) as exc:
+            governed_contract_valid = False
+            governed_result_bounded = False
+            governed_failures.append(str(exc))
+            continue
+        if evidence_record.method.arguments != action.arguments or reported_query != query:
+            governed_contract_valid = False
+            governed_failures.append("executed arguments do not match the evidence query")
+        rows = evidence_record.result.get("rows")
+        if not isinstance(rows, list):
+            governed_result_bounded = False
+            governed_failures.append("query result rows are missing")
+            continue
+        values = [row.get("closed_won_opportunity_acv") for row in rows]
+        dimension_keys = {item.value for item in query.dimensions}
+        rows_are_valid = (
+            len(rows) <= query.top_n
+            and all(isinstance(value, int) and value >= 0 for value in values)
+            and values == sorted(values, reverse=True)
+            and all(
+                isinstance(row.get("dimensions"), dict)
+                and set(row["dimensions"]) == dimension_keys
+                for row in rows
+            )
+        )
+        if not rows_are_valid:
+            governed_result_bounded = False
+            governed_failures.append("rows violate the bounded typed result contract")
+    record(
+        "governed_query_contract",
+        governed_contract_valid,
+        (
+            "typed query arguments match the executed and evidenced semantic query"
+            if governed_contract_valid and governed_actions
+            else "not applicable; no governed query executed"
+            if governed_contract_valid
+            else "; ".join(governed_failures)
+        ),
+    )
+    record(
+        "governed_query_result_bounds",
+        governed_result_bounded,
+        (
+            "result rows use only requested dimensions and respect the row bound"
+            if governed_result_bounded and governed_actions
+            else "not applicable; no governed query executed"
+            if governed_result_bounded
+            else "; ".join(governed_failures)
+        ),
     )
 
     planned_hypotheses = {item.hypothesis_id for item in state.plan.hypotheses}

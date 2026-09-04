@@ -51,7 +51,7 @@ The command prints JSON only, so a later application can consume it directly. Th
 model receives a native JSON Schema derived from `BusinessQuestion`. Invalid output is
 returned to the model for correction up to two times before the command fails clearly.
 
-Inspect the Stage 9 approved source and analytical-capability catalog without starting the
+Inspect the approved source and analytical-capability catalog without starting the
 model server:
 
 ```bash
@@ -62,6 +62,22 @@ business-ops-catalog
 The compact planning view shows what the analyst may use. The full view also includes entity
 definitions, metric semantics, source locators, implementation identities, and interpretation
 boundaries. Its SHA-256 digest changes if any governed definition changes.
+
+Run a Stage 10 governed breakdown without starting the model server:
+
+```bash
+make query
+business-ops-query \
+  --start 2026-01-01 \
+  --end 2026-03-31 \
+  --dimension region \
+  --top 10
+```
+
+Repeat `--dimension` once to group by two dimensions. The only accepted dimensions are
+`account`, `region`, `close_month`, and `close_quarter`; the row limit cannot exceed 50. The
+command accepts no SQL. It validates the request, verifies the source, uses the read-only
+SQLite adapter by default, and includes the semantic request and metric boundary in its output.
 
 Run deterministic Stage 3 analysis without starting the model server:
 
@@ -117,14 +133,16 @@ Run the current catalog- and evidence-grounded reliability suite through the ver
 make qualify-evaluation
 ```
 
-The two scenarios run sequentially and can take several minutes with the qualified 27B local
-model. To diagnose one case, pass `--scenario causal_attribution` or
-`--scenario support_prioritization` to `scripts/qualify_evaluation.py`.
+The three scenarios run sequentially and can take several minutes with the qualified 27B local
+model. To diagnose one case, pass `--scenario causal_attribution`,
+`--scenario support_prioritization`, or `--scenario governed_opportunity_analysis` to
+`scripts/qualify_evaluation.py`.
 
-The Stage 9 suite adds catalog-integrity and catalog-to-execution alignment gates to the Stage
-8 contract. The accepted milestone result is 2/2 scenarios and 20/20 gates per scenario. The
-verified run completed in 240.783 seconds. Timing and generated prose may vary between runs,
-while deterministic evidence, catalog alignment, and pass criteria must remain stable.
+The Stage 10 suite retains the catalog and evidence gates and adds typed-query alignment and
+bounded-result checks. The accepted milestone result is 3/3 scenarios and 22/22 gates per
+scenario. The verified run completed in 375.009 seconds. Timing and generated prose may vary
+between runs, while deterministic evidence, query arguments, catalog alignment, and pass
+criteria must remain stable.
 
 Export a portable audit bundle while running one investigation:
 
