@@ -8,10 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.investigation import (
+    MANDATORY_CAUSAL_SENTENCE,
     AnalysisKind,
     InvestigationState,
+    has_causal_attribution_language,
+    has_revenue_metric_conflation,
     has_unsupported_statistical_language,
 )
+from business_ops.provenance import EvidenceRecord
 from business_ops.questions import QuestionType
 
 
@@ -30,6 +34,7 @@ class EvaluationScenario(EvaluationModel):
     question: str = Field(min_length=1)
     expected_question_types: tuple[QuestionType, ...] = Field(min_length=1)
     required_analyses: tuple[AnalysisKind, ...] = Field(min_length=1)
+    allowed_analyses: tuple[AnalysisKind, ...] = ()
     evidence_expectations: tuple[EvidenceExpectation, ...] = ()
     require_causal_restraint: bool = False
     max_analysis_steps: int = Field(default=4, ge=2, le=4)
@@ -41,6 +46,12 @@ class EvaluationScenario(EvaluationModel):
             raise ValueError("expected question types must be distinct")
         if len(self.required_analyses) != len(set(self.required_analyses)):
             raise ValueError("required analyses must be distinct")
+        if len(self.allowed_analyses) != len(set(self.allowed_analyses)):
+            raise ValueError("allowed analyses must be distinct")
+        if self.allowed_analyses and not set(self.required_analyses).issubset(
+            self.allowed_analyses
+        ):
+            raise ValueError("allowed analyses must include every required analysis")
         return self
 
 
@@ -190,10 +201,21 @@ def evaluate_investigation(
             else "missing: " + ", ".join(sorted(item.value for item in missing_analyses))
         ),
     )
+    allowed = set(scenario.allowed_analyses or scenario.required_analyses)
+    unexpected_analyses = used - allowed
+    record(
+        "relevant_analysis_scope",
+        not unexpected_analyses,
+        (
+            "all executed analyses are relevant to the scenario"
+            if not unexpected_analyses
+            else "unexpected: "
+            + ", ".join(sorted(item.value for item in unexpected_analyses))
+        ),
+    )
     record(
         "bounded_distinct_execution",
-        2 <= len(used_sequence) <= scenario.max_analysis_steps
-        and len(used_sequence) == len(used),
+        2 <= len(used_sequence) <= scenario.max_analysis_steps and len(used_sequence) == len(used),
         f"executed {len(used_sequence)} distinct bounded analyses",
     )
 
@@ -206,13 +228,43 @@ def evaluate_investigation(
         f"{len(state.actions)} actions and {len(state.observations)} observations",
     )
 
+    evidence_records = state.evidence_ledger.records
+    record_tools = [AnalysisKind(item.method.tool_name) for item in evidence_records]
+    record_observations = [item.observation_id for item in evidence_records]
+    record_trace_complete = (
+        len(evidence_records) == len(state.observations)
+        and record_tools == observation_tools
+        and record_observations == [item.observation_id for item in state.observations]
+        and all(
+            evidence.result == observation.content
+            for evidence, observation in zip(evidence_records, state.observations, strict=True)
+        )
+    )
+    record(
+        "complete_evidence_ledger",
+        record_trace_complete,
+        f"{len(evidence_records)} evidence records for {len(state.observations)} observations",
+    )
+
+    tamper_evident = True
+    try:
+        for item in evidence_records:
+            EvidenceRecord.model_validate(item.model_dump(mode="python"))
+    except ValueError:
+        tamper_evident = False
+    record(
+        "tamper_evident_evidence",
+        tamper_evident,
+        "all evidence IDs and result digests match their immutable content",
+    )
+
     provenance_valid = all(
-        isinstance(item.content, dict)
-        and item.content.get("source", {}).get("dataset") == ENTERPRISE_BENCH.name
-        and item.content.get("source", {}).get("source_commit")
-        == ENTERPRISE_BENCH.source_commit
-        and item.content.get("source", {}).get("synthetic") is True
-        for item in state.observations
+        item.source.dataset == ENTERPRISE_BENCH.name
+        and item.source.source_commit == ENTERPRISE_BENCH.source_commit
+        and item.source.snapshot_sha256 == ENTERPRISE_BENCH.sha256
+        and item.source.synthetic is True
+        and bool(item.source.locators)
+        for item in evidence_records
     )
     record(
         "approved_source_provenance",
@@ -221,7 +273,9 @@ def evaluate_investigation(
     )
 
     evidence_failures: list[str] = []
-    observations_by_tool = {item.tool_name: item.content for item in state.observations}
+    observations_by_tool = {
+        AnalysisKind(item.method.tool_name): item.result for item in evidence_records
+    }
     for expectation in scenario.evidence_expectations:
         actual = _resolve_path(
             observations_by_tool.get(expectation.analysis, _MISSING), expectation.path
@@ -239,35 +293,96 @@ def evaluate_investigation(
     )
 
     planned_hypotheses = {item.hypothesis_id for item in state.plan.hypotheses}
-    assessed_hypotheses = {
-        item.hypothesis_id for item in state.conclusion.hypothesis_assessments
-    }
+    assessed_hypotheses = {item.hypothesis_id for item in state.conclusion.hypothesis_assessments}
     record(
         "complete_hypothesis_assessment",
         planned_hypotheses == assessed_hypotheses,
         f"assessed {len(assessed_hypotheses)} of {len(planned_hypotheses)} hypotheses",
     )
 
-    cited = {
-        tool for item in state.conclusion.findings for tool in item.source_tools
-    } | {
-        tool
-        for item in state.conclusion.hypothesis_assessments
-        for tool in item.source_tools
-    }
-    ungrounded = cited - used
+    cited = (
+        {evidence_id for item in state.conclusion.findings for evidence_id in item.evidence_ids}
+        | {
+            evidence_id
+            for item in state.conclusion.hypothesis_assessments
+            for evidence_id in item.evidence_ids
+        }
+        | {
+            evidence_id
+            for item in state.conclusion.business_implications
+            for evidence_id in item.evidence_ids
+        }
+        | set(state.conclusion.recommendation.evidence_ids)
+    )
+    ungrounded = cited - state.evidence_ledger.evidence_ids
     record(
         "grounded_citations",
         not ungrounded,
         (
-            "all citations refer to executed analyses"
+            "all claims cite immutable evidence records"
             if not ungrounded
-            else "unexecuted citations: "
-            + ", ".join(sorted(item.value for item in ungrounded))
+            else "unknown evidence IDs: " + ", ".join(sorted(ungrounded))
+        ),
+    )
+
+    cited_claim_count = (
+        len(state.conclusion.findings)
+        + len(state.conclusion.hypothesis_assessments)
+        + len(state.conclusion.business_implications)
+        + 1
+    )
+    all_claims_cited = all(item.evidence_ids for item in state.conclusion.findings)
+    all_claims_cited = all_claims_cited and all(
+        item.evidence_ids for item in state.conclusion.hypothesis_assessments
+    )
+    all_claims_cited = all_claims_cited and all(
+        item.evidence_ids for item in state.conclusion.business_implications
+    )
+    all_claims_cited = all_claims_cited and bool(state.conclusion.recommendation.evidence_ids)
+    record(
+        "complete_claim_citations",
+        all_claims_cited,
+        f"all {cited_claim_count} material claims include evidence citations",
+    )
+
+    source_snapshots = {
+        (item.source.source_id, item.source.source_commit) for item in evidence_records
+    }
+    source_agreement_calibrated = not (
+        len(source_snapshots) == 1
+        and state.conclusion.confidence.source_agreement != "not_assessed"
+    )
+    record(
+        "source_agreement_calibration",
+        source_agreement_calibrated,
+        (
+            "source agreement is correctly not assessed for one source snapshot"
+            if len(source_snapshots) == 1 and source_agreement_calibrated
+            else "source agreement reflects independent source snapshots"
+            if source_agreement_calibrated
+            else "multiple reports from one snapshot were treated as independent sources"
         ),
     )
 
     conclusion_text = state.conclusion.model_dump_json().lower()
+    has_non_revenue_metric = any(
+        item.method.metric_definition is not None
+        and "not recognized revenue" in item.method.metric_definition.lower()
+        for item in evidence_records
+    )
+    metric_definition_preserved = not (
+        has_non_revenue_metric and has_revenue_metric_conflation(conclusion_text)
+    )
+    record(
+        "metric_definition_preserved",
+        metric_definition_preserved,
+        (
+            "conclusion preserves the evidence metric definitions"
+            if metric_definition_preserved
+            else "closed-won opportunity ACV was incorrectly described as revenue"
+        ),
+    )
+
     false_statistics = has_unsupported_statistical_language(conclusion_text)
     record(
         "no_unsupported_statistics",
@@ -275,17 +390,11 @@ def evaluate_investigation(
         "no unperformed statistical test is claimed",
     )
 
-    causal_restraint = (
-        not scenario.require_causal_restraint
-        or (
-            all(
-                item.status == "inconclusive"
-                for item in state.conclusion.hypothesis_assessments
-            )
-            and state.conclusion.confidence != "high"
-            and bool(state.conclusion.limitations)
-            and bool(state.conclusion.unresolved_questions)
-        )
+    causal_restraint = not scenario.require_causal_restraint or (
+        all(item.status == "inconclusive" for item in state.conclusion.hypothesis_assessments)
+        and state.conclusion.confidence.level != "high"
+        and bool(state.conclusion.limitations)
+        and bool(state.conclusion.unresolved_questions)
     )
     record(
         "causal_restraint",
@@ -294,6 +403,21 @@ def evaluate_investigation(
             "causal claims remain inconclusive and explicitly limited"
             if scenario.require_causal_restraint
             else "not required for this scenario"
+        ),
+    )
+
+    causal_language_appropriate = (
+        MANDATORY_CAUSAL_SENTENCE in state.conclusion.executive_summary.lower()
+        if scenario.require_causal_restraint
+        else not has_causal_attribution_language(conclusion_text)
+    )
+    record(
+        "question_appropriate_causal_language",
+        causal_language_appropriate,
+        (
+            "causal attribution language matches the question type"
+            if causal_language_appropriate
+            else "a non-causal question received the causal-attribution boilerplate"
         ),
     )
 

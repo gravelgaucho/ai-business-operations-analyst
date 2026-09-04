@@ -108,11 +108,11 @@ Run one diagnostic scenario when iterating:
 .venv/bin/python scripts/qualify_evaluation.py --scenario causal_attribution
 ```
 
-The complete local evidence artifact is written to the ignored
-`artifacts/stage7_qualification.json` file. It includes each typed investigation state,
-individual gate result, elapsed time, model identifier, and source provenance. The artifact
-is ignored because model transcripts and machine-specific measurements should be reviewed
-before publication.
+At the Stage 7 tag, the complete local evidence artifact was written to the ignored
+`artifacts/stage7_qualification.json` file. The current `make qualify-evaluation` target now
+runs the expanded Stage 8 suite and writes `artifacts/stage8_qualification.json`. These
+artifacts are ignored because model transcripts and machine-specific measurements should be
+reviewed before publication.
 
 ## Commercial boundary
 

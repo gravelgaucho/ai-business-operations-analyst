@@ -1,8 +1,9 @@
-# AI Business Operations Analyst
+# Local AI Business Analyst
 
-A local-first AI system designed to investigate business performance questions,
-test hypotheses against evidence, and produce decision-ready findings with human
-oversight.
+A local-first, evidence-grounded AI business analyst and internal strategy consultant.
+It is designed to investigate ambiguous business questions across organizational data,
+use governed analytical tools, test hypotheses, and produce decision-ready findings whose
+important claims can be audited back to internal evidence.
 
 ## Progress
 
@@ -16,8 +17,9 @@ oversight.
 | Stage 5 — controlled investigation agent | Complete | Tagged `v0.6-investigation-agent` |
 | Stage 6 — verified relational data layer | Complete | Tagged `v0.7-sql-data-layer` |
 | Stage 7 — repeatable reliability evaluation | Complete | Tagged `v0.8-evaluation-suite` |
+| Stage 8 — claim-level evidence provenance | Complete | Tagged `v0.9-evidence-provenance` |
 
-This repository contains eight foundations:
+This repository contains nine foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -39,6 +41,9 @@ This repository contains eight foundations:
 - **Stage 7 — Repeatable Reliability Evaluation:** run versioned public scenarios through
   the same investigation contract and score classification, evidence selection, provenance,
   deterministic values, citation grounding, causal restraint, and execution budgets.
+- **Stage 8 — Claim-Level Evidence Provenance:** turn every deterministic observation into a
+  content-addressed evidence record, require material claims and recommendations to cite
+  stable evidence IDs, and export a portable audit bundle for independent review.
 
 ## What Stage 0 proves
 
@@ -84,6 +89,14 @@ at 100% in 221.44 seconds total. Qualification also proved that the controller c
 unambiguous intent-label error and enforce exact quarter boundaries before executing a
 report. See [docs/stage-7-evaluation-suite.md](docs/stage-7-evaluation-suite.md).
 
+Stage 8 reran both scenarios against 18 gates each. Both passed at 100% in 240.645 seconds
+total using the local `Qwen3.8-27B-4bit` baseline. Each run executed exactly the two relevant
+analyses, produced two tamper-evident evidence records, cited every material claim, and
+round-tripped as a self-validating audit bundle. The causal case also preserved the
+closed-won opportunity ACV metric and recorded the controller's conservative causal-policy
+correction. See
+[docs/stage-8-evidence-provenance.md](docs/stage-8-evidence-provenance.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -109,6 +122,9 @@ business-ops-analytics --database data/derived/maple_payments.sqlite3 account-ri
 business-ops-analyze "Which accounts have the most ARR exposed to open P1 tickets?"
 business-ops-investigate \
   "Did open P1 issues explain the Q1 2026 closed-won ACV decline versus Q4 2025?"
+business-ops-investigate \
+  "Did open P1 issues explain the Q1 2026 closed-won ACV decline versus Q4 2025?" \
+  --audit-output artifacts/example-audit.json
 make qualify-evaluation
 business-ops "Analyze the same question" --show-request --raw
 make qualify
@@ -132,6 +148,7 @@ src/business_ops/analytics/    Model-free calculations and result types
 src/business_ops/reports.py    Typed, reusable business-analysis reports
 src/business_ops/analyst.py    Bounded tool catalog and model continuation loop
 src/business_ops/investigation.py Typed plan, controlled evidence loop, and conclusion gates
+src/business_ops/provenance.py Content-addressed evidence ledger and portable audit contract
 src/business_ops/evaluation.py Versioned scenarios and model-neutral reliability gates
 src/business_ops/datasets/     Verified JSON import, repository boundary, and SQLite adapter
 tests/                      Fast tests that do not load the model
@@ -145,15 +162,17 @@ docs/stage-4-tool-calling.md  Tool contracts, controls, and interpretation bound
 docs/stage-5-investigation-agent.md Multi-step controller and verified investigation
 docs/stage-6-sql-data-layer.md Relational schema, parity proof, and measured results
 docs/stage-7-evaluation-suite.md Public scenario contract and commercial evaluation boundary
+docs/stage-8-evidence-provenance.md Claim-level citations and audit-bundle walkthrough
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 7 evaluates only four read-only reports over DevRev's synthetic, Apache-2.0 licensed
-Maple Payments data. Its investigation loop is capped at four distinct analyses. It does
-**not** add MCP, RAG, private business data, write actions, arbitrary queries, long-lived
-memory, or a user interface.
+Stage 8 still evaluates only four read-only reports over DevRev's synthetic, Apache-2.0
+licensed Maple Payments data. Its investigation loop is capped at four distinct analyses.
+The evidence architecture is general, but the current source adapters and analyses are not.
+It does **not** add MCP, RAG, private business data, write actions, arbitrary queries,
+long-lived memory, or a user interface.
 
 ## Safety note
 

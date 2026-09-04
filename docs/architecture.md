@@ -1,4 +1,4 @@
-# Architecture through Stage 7
+# Architecture through Stage 8
 
 ## Decision
 
@@ -27,6 +27,12 @@ configuration.
                                  JSON reference               SQLite read-only
                                       |                             |
                                       +------ verified source ------+
+                                                    |
+                                                    v
+                                      content-addressed evidence ledger
+                                                    |
+                                                    v
+                                      typed claims + portable audit bundle
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
@@ -80,6 +86,43 @@ models and controller versions without importing MLX, Qwen, provider, or data-st
 internals. The small public suite proves this contract; a larger product evaluation library
 can remain private.
 
+Stage 8 makes provenance a first-class application contract. After each deterministic report,
+Python creates an immutable evidence record containing the approved source snapshot, logical
+file or table locators, executed method and arguments, reported record identifiers, complete
+result, and SHA-256 result digest. The evidence ID is derived from that content rather than
+invented by the model. Synthesis receives this ledger and must cite its exact evidence IDs.
+
+The conclusion now separates verified facts, analytical findings, hypothesis assessments,
+business implications, recommendations, and confidence. Every material claim cites at least
+one evidence record. Recommendations state their rationale and whether human review is
+required. Confidence records evidence coverage, source agreement, and data quality instead of
+presenting an unexplained score. Application validation rejects unknown evidence citations,
+tampered records, incomplete ledgers, and conclusions that violate the existing causal or
+statistical boundaries.
+
+A completed state can be exported as a portable audit bundle. It includes the source snapshot
+descriptors, evidence ledger, normalized claim index, execution trace, and final conclusion.
+It intentionally uses logical source locators rather than exposing machine-specific absolute
+paths.
+
+A narrow deterministic conclusion policy enforces governance rules that should not depend on
+prompt obedience. It calibrates source agreement, preserves source-defined metric names, and
+keeps underidentified causal implications and recommendations inside a human-review boundary.
+Every policy correction is represented in investigation state and exported with the audit
+bundle. Evidence records, calculations, and citations remain unchanged. Invalid evidence IDs,
+missing hypothesis assessments, unsupported statistics, and unjustified causal confidence are
+not papered over; they remain validation failures or model retries.
+
+## Revised product boundary
+
+The product direction is now a general local AI business analyst, not a Maple-specific support
+and pipeline workflow. The completed stages form its initial execution and governance core.
+The next architectural layers will add a lean source and semantic catalog, a general capability
+registry, governed structured queries, and document retrieval. RAG will be one capability for
+unstructured evidence; it will not replace the controller, deterministic analytics, or evidence
+ledger. Maple Payments remains the first evaluation domain, and transaction/contract/pricing
+review remains a future benchmark domain and possible vertical package.
+
 Two deterministic input guards sit inside the controller. Explicit causal, predictive,
 prescriptive, or comparative wording takes precedence over a contradictory model label, and
 the correction is recorded in `InvestigationState`. When a question names exactly two
@@ -129,5 +172,7 @@ The relational layer qualifies separately: source provenance and row counts must
 every report must equal the JSON reference, runtime writes must fail, and the period query
 must use its composite index.
 
-The Stage 7 suite qualifies the end-to-end investigation separately: every public scenario
-must pass all behavior, provenance, evidence, grounding, safety, and request-budget gates.
+The Stage 8 suite qualifies the end-to-end investigation separately: every public scenario
+must pass behavior, source provenance, evidence integrity, claim-level citation, grounding,
+safety, and request-budget gates. The September 4, 2026 milestone run passed both public
+scenarios at 18/18 gates each in 240.645 seconds using the local 27B baseline.

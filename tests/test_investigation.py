@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
@@ -14,11 +15,16 @@ from business_ops.datasets.sqlite_store import build_database
 from business_ops.investigation import (
     InvestigationError,
     InvestigationPlan,
+    create_audit_bundle,
     create_planner,
     create_step_selector,
     create_synthesizer,
+    decisive_causal_phrases,
+    has_revenue_metric_conflation,
     run_investigation,
 )
+from business_ops.investigation_cli import main as investigation_cli_main
+from business_ops.provenance import AuditBundle, EvidenceRecord
 
 QUESTION = "Did open P1 support issues explain the Q1 2026 pipeline decline versus Q4 2025?"
 
@@ -103,19 +109,22 @@ ACCOUNT_DECISION = PRODUCT_DECISION | {
 }
 
 CONCLUSION = {
-    "executive_summary": "Closed-won ACV declined, but overlap alone cannot prove causation.",
+    "executive_summary": (
+        "Closed-won ACV declined. The available evidence does not support attribution; "
+        "causation remains unresolved."
+    ),
     "findings": [
         {
             "finding_id": "F1",
             "statement": "Closed-won ACV declined from the previous period.",
-            "evidence_type": "direct",
-            "source_tools": ["compare_closed_won_pipeline"],
+            "claim_type": "verified_fact",
+            "evidence_ids": ["__EVIDENCE_1__"],
         },
         {
             "finding_id": "F2",
             "statement": "The declining account also had an open P1 ticket.",
-            "evidence_type": "association",
-            "source_tools": ["test_support_pipeline_overlap"],
+            "claim_type": "analytical_finding",
+            "evidence_ids": ["__EVIDENCE_2__"],
         },
     ],
     "hypothesis_assessments": [
@@ -123,11 +132,30 @@ CONCLUSION = {
             "hypothesis_id": "H1",
             "status": "inconclusive",
             "rationale": "Overlap is measurable, but ticket timing is unavailable.",
-            "source_tools": ["test_support_pipeline_overlap"],
+            "evidence_ids": ["__EVIDENCE_2__"],
         }
     ],
-    "recommendation": "Have a human review ticket timing before treating this as causal.",
-    "confidence": "medium",
+    "business_implications": [
+        {
+            "implication_id": "I1",
+            "statement": "The overlap warrants focused review but not causal attribution.",
+            "evidence_ids": ["__EVIDENCE_1__", "__EVIDENCE_2__"],
+        }
+    ],
+    "recommendation": {
+        "recommendation_id": "R1",
+        "statement": "Review ticket timing before treating this as causal.",
+        "rationale": "The measured overlap does not establish event sequence.",
+        "evidence_ids": ["__EVIDENCE_2__"],
+        "human_review_required": True,
+    },
+    "confidence": {
+        "level": "medium",
+        "rationale": "The calculations are verified, but causal timing is missing.",
+        "evidence_coverage": "partial",
+        "source_agreement": "not_assessed",
+        "data_quality": "adequate",
+    },
     "unresolved_questions": ["Did the ticket precede the opportunity change?"],
     "limitations": ["Set overlap does not establish causation."],
 }
@@ -187,9 +215,17 @@ def dataset(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def render_payload(payload: dict[str, object], messages: object) -> str:
+    rendered = json.dumps(payload)
+    evidence_ids = list(dict.fromkeys(re.findall(r"EV-[0-9a-f]{16}", repr(messages))))
+    for index, value in enumerate(evidence_ids, start=1):
+        rendered = rendered.replace(f"__EVIDENCE_{index}__", value)
+    return rendered
+
+
 def json_agent(payload: dict[str, object]):
-    def model(_messages: object, _info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[TextPart(json.dumps(payload))])
+    def model(messages: object, _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(render_payload(payload, messages))])
 
     return FunctionModel(model)
 
@@ -204,12 +240,31 @@ def selector_agent(sequence: list[dict[str, object]]):
 
 
 def test_plan_rejects_single_analysis_disguised_as_multiple_steps() -> None:
-    invalid = PLAN | {
-        "steps": [PLAN["steps"][0], PLAN["steps"][0] | {"step_id": "step_2"}]
-    }
+    invalid = PLAN | {"steps": [PLAN["steps"][0], PLAN["steps"][0] | {"step_id": "step_2"}]}
 
     with pytest.raises(ValidationError, match="two distinct analyses"):
         InvestigationPlan.model_validate(invalid)
+
+
+def test_causal_language_check_distinguishes_assertion_from_uncertainty() -> None:
+    assert decisive_causal_phrases("Open P1 issues drove the ACV decline.") == (
+        "drove the",
+    )
+    assert (
+        decisive_causal_phrases(
+            "The evidence cannot determine whether open P1 issues drove the ACV decline."
+        )
+        == ()
+    )
+    assert decisive_causal_phrases("The primary driver remains unknown.") == ()
+    assert decisive_causal_phrases("Support issues were the primary driver.") == (
+        "primary driver",
+    )
+
+
+def test_metric_check_allows_explicit_non_revenue_boundary() -> None:
+    assert has_revenue_metric_conflation("Closed-won ACV is not recognized revenue.") is False
+    assert has_revenue_metric_conflation("Revenue fell during the period.") is True
 
 
 def test_controller_selects_two_analyses_and_preserves_visible_state(
@@ -231,10 +286,97 @@ def test_controller_selects_two_analyses_and_preserves_visible_state(
     ]
     assert len(state.decisions) == 2
     assert len(state.observations) == 2
+    assert len(state.evidence_ledger.records) == 2
+    assert state.conclusion.findings[0].evidence_ids == [
+        state.evidence_ledger.records[0].evidence_id
+    ]
     assert state.observations[1].tool_name == "test_support_pipeline_overlap"
     assert "evidence gate is satisfied" in state.stop_reason
     assert state.usage.total_requests == 4
     assert state.usage.total_tool_calls == 2
+
+
+def test_evidence_records_are_content_addressed_and_tamper_evident(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(PLAN)),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(CONCLUSION)),
+        data_root=dataset,
+    )
+    record = state.evidence_ledger.records[0]
+    EvidenceRecord.model_validate(record.model_dump(mode="python"))
+
+    tampered = record.model_dump(mode="python")
+    tampered["result"]["comparison"]["current"] = 999
+    with pytest.raises(ValidationError, match="result digest"):
+        EvidenceRecord.model_validate(tampered)
+
+
+def test_audit_bundle_is_self_contained_and_round_trips(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(PLAN)),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(CONCLUSION)),
+        data_root=dataset,
+    )
+    bundle = create_audit_bundle(state)
+    restored = AuditBundle.model_validate_json(bundle.model_dump_json())
+
+    assert restored.investigation_id == bundle.investigation_id
+    assert len(restored.evidence_ledger.records) == 2
+    assert {claim.claim_type for claim in restored.claims} == {
+        "verified_fact",
+        "analytical_finding",
+        "hypothesis_assessment",
+        "business_implication",
+        "recommendation",
+    }
+    assert all(
+        evidence_id in restored.evidence_ledger.evidence_ids
+        for claim in restored.claims
+        for evidence_id in claim.evidence_ids
+    )
+
+    tampered = bundle.model_dump(mode="python")
+    tampered["conclusion"]["executive_summary"] = "A changed conclusion."
+    with pytest.raises(ValidationError, match="investigation ID"):
+        AuditBundle.model_validate(tampered)
+
+
+def test_cli_writes_audit_bundle_without_overwriting_existing_evidence(
+    dataset: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(PLAN)),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(CONCLUSION)),
+        data_root=dataset,
+    )
+    monkeypatch.setattr(
+        "business_ops.investigation_cli.run_investigation",
+        lambda *args, **kwargs: state,
+    )
+    output = tmp_path / "audit" / "investigation.json"
+
+    assert investigation_cli_main([QUESTION, "--audit-output", str(output)]) == 0
+    AuditBundle.model_validate_json(output.read_text(encoding="utf-8"))
+    assert investigation_cli_main([QUESTION, "--audit-output", str(output)]) == 1
+    assert "already exists" in capsys.readouterr().err
 
 
 def test_controller_audits_an_explicit_causal_classification_correction(
@@ -309,7 +451,7 @@ def test_selector_retries_a_tool_outside_the_remaining_plan(
     assert state.usage.execution.requests == 4
 
 
-def test_evidence_gate_requires_planned_overlap_after_two_other_analyses(
+def test_relevance_guard_removes_redundant_planned_analysis_and_audits_correction(
     dataset: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
@@ -327,13 +469,21 @@ def test_evidence_gate_requires_planned_overlap_after_two_other_analyses(
     state = run_investigation(
         QUESTION,
         planner=create_planner(json_agent(expanded_plan)),
-        selector=selector_agent([PIPELINE_DECISION, ACCOUNT_DECISION, OVERLAP_DECISION]),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
         synthesizer=create_synthesizer(json_agent(CONCLUSION)),
         data_root=dataset,
     )
 
-    assert len(state.actions) == 3
+    assert len(state.actions) == 2
     assert state.actions[-1].name == "test_support_pipeline_overlap"
+    assert state.plan_correction is not None
+    assert state.plan_correction.removed_analyses == ["get_account_support_risk"]
+    assert [step.analysis for step in state.plan.steps] == [
+        "compare_closed_won_pipeline",
+        "test_support_pipeline_overlap",
+    ]
+    bundle = create_audit_bundle(state)
+    assert bundle.controller_corrections[0]["correction_type"] == "analysis_scope"
 
 
 def test_synthesis_retries_citations_to_unexecuted_analyses(
@@ -341,11 +491,11 @@ def test_synthesis_retries_citations_to_unexecuted_analyses(
 ) -> None:
     monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
     invalid = json.loads(json.dumps(CONCLUSION))
-    invalid["findings"][0]["source_tools"] = ["get_product_area_support_risk"]
+    invalid["findings"][0]["evidence_ids"] = ["EV-0000000000000000"]
     sequence = iter([invalid, CONCLUSION])
 
-    def synthesize(_messages: object, _info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[TextPart(json.dumps(next(sequence)))])
+    def synthesize(messages: object, _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(render_payload(next(sequence), messages))])
 
     state = run_investigation(
         QUESTION,
@@ -356,7 +506,9 @@ def test_synthesis_retries_citations_to_unexecuted_analyses(
     )
 
     assert state.usage.execution.requests == 4
-    assert state.conclusion.findings[0].source_tools == ["compare_closed_won_pipeline"]
+    assert state.conclusion.findings[0].evidence_ids == [
+        state.evidence_ledger.records[0].evidence_id
+    ]
 
 
 def test_synthesis_retries_overconfident_causal_claims(
@@ -364,15 +516,15 @@ def test_synthesis_retries_overconfident_causal_claims(
 ) -> None:
     monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
     invalid = json.loads(json.dumps(CONCLUSION))
-    invalid["confidence"] = "high"
+    invalid["confidence"]["level"] = "high"
     invalid["hypothesis_assessments"][0]["status"] = "rejected"
     invalid["hypothesis_assessments"][0]["rationale"] = (
         "The relationship was not statistically significant."
     )
     sequence = iter([invalid, CONCLUSION])
 
-    def synthesize(_messages: object, _info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[TextPart(json.dumps(next(sequence)))])
+    def synthesize(messages: object, _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(render_payload(next(sequence), messages))])
 
     state = run_investigation(
         QUESTION,
@@ -383,8 +535,108 @@ def test_synthesis_retries_overconfident_causal_claims(
     )
 
     assert state.usage.execution.requests == 4
-    assert state.conclusion.confidence == "medium"
+    assert state.conclusion.confidence.level == "medium"
     assert state.conclusion.hypothesis_assessments[0].status == "inconclusive"
+
+
+def test_controller_records_deterministic_policy_corrections(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    unsafe = json.loads(json.dumps(CONCLUSION))
+    unsafe["business_implications"][0]["statement"] = (
+        "Support issues were not the primary driver of the revenue drop."
+    )
+    unsafe["findings"][0]["statement"] = "Revenue declined during the period."
+    unsafe["confidence"]["source_agreement"] = "consistent"
+
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(PLAN)),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(unsafe)),
+        data_root=dataset,
+    )
+
+    assert state.conclusion_correction is not None
+    assert "business_implications" in state.conclusion_correction.corrected_sections
+    assert "metric_terminology" in state.conclusion_correction.corrected_sections
+    assert state.conclusion.confidence.source_agreement == "not_assessed"
+    assert decisive_causal_phrases(state.conclusion.business_implications[0].statement) == ()
+    assert has_revenue_metric_conflation(state.conclusion.model_dump_json()) is False
+    bundle = create_audit_bundle(state)
+    assert any(
+        item["correction_type"] == "conclusion_policy"
+        for item in bundle.controller_corrections
+    )
+
+
+def test_synthesis_retries_causal_boilerplate_for_noncausal_question(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    question = "Which accounts and product areas should an operations leader review first?"
+    plan = json.loads(json.dumps(PLAN))
+    plan["question"].update(
+        {
+            "question_type": "prescriptive",
+            "normalized_question": question,
+            "time_period": None,
+        }
+    )
+    plan["steps"] = [
+        {
+            "step_id": "step_1",
+            "analysis": "get_account_support_risk",
+            "purpose": "Rank account exposure.",
+            "success_criterion": "The account ranking is available.",
+        },
+        {
+            "step_id": "step_2",
+            "analysis": "get_product_area_support_risk",
+            "purpose": "Rank product-area exposure.",
+            "success_criterion": "The product ranking is available.",
+        },
+    ]
+    valid = json.loads(json.dumps(CONCLUSION))
+    valid["executive_summary"] = "Prioritize the highest current support exposures."
+    valid["findings"][0]["statement"] = "The account exposure ranking is available."
+    valid["findings"][1]["statement"] = "The product-area exposure ranking is available."
+    valid["hypothesis_assessments"][0]["status"] = "supported"
+    valid["hypothesis_assessments"][0]["rationale"] = (
+        "The approved reports provide the requested rankings."
+    )
+    valid["confidence"]["rationale"] = "The requested rankings are directly measured."
+    valid["business_implications"][0]["statement"] = (
+        "The rankings provide a focused management review list."
+    )
+    valid["recommendation"]["statement"] = (
+        "Review the top-ranked accounts and product areas."
+    )
+    valid["recommendation"]["rationale"] = (
+        "The approved reports identify the largest current exposures."
+    )
+    valid["unresolved_questions"] = []
+    valid["limitations"] = ["The source is synthetic."]
+    invalid = json.loads(json.dumps(valid))
+    invalid["executive_summary"] += (
+        " The available evidence does not support attribution; causation remains unresolved."
+    )
+    sequence = iter([invalid, valid])
+
+    def synthesize(messages: object, _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(render_payload(next(sequence), messages))])
+
+    state = run_investigation(
+        question,
+        planner=create_planner(json_agent(plan)),
+        selector=selector_agent([ACCOUNT_DECISION, PRODUCT_DECISION]),
+        synthesizer=create_synthesizer(FunctionModel(synthesize)),
+        data_root=dataset,
+    )
+
+    assert state.usage.execution.requests == 4
+    assert "causation" not in state.conclusion.model_dump_json().lower()
 
 
 def test_dataset_is_verified_before_planning(

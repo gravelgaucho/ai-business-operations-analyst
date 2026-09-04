@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from business_ops.datasets.download import ENTERPRISE_BENCH
@@ -10,6 +11,7 @@ from business_ops.evaluation import (
     run_evaluation_suite,
 )
 from business_ops.investigation import InvestigationState
+from business_ops.provenance import EvidenceLedger, build_evidence_record
 
 
 def source() -> dict[str, object]:
@@ -63,6 +65,7 @@ def state_for(
     decisions = []
     actions = []
     tool_observations = []
+    evidence_records = []
     for index, (tool, content) in enumerate(zip(tools, observations, strict=True), start=1):
         dated = tool in {"compare_closed_won_pipeline", "test_support_pipeline_overlap"}
         decisions.append(
@@ -87,15 +90,30 @@ def state_for(
                 "content": content,
             }
         )
+        evidence_records.append(
+            build_evidence_record(
+                observation_id=f"observation_{index}",
+                tool_name=tool,
+                arguments={},
+                result=content,
+                source=Path("."),
+            )
+        )
+
+    evidence_ids = [record.evidence_id for record in evidence_records]
 
     conclusion = {
-        "executive_summary": "The approved evidence supports a bounded review.",
+        "executive_summary": (
+            "The available evidence does not support attribution; causation remains unresolved."
+            if causal
+            else "The approved evidence supports a bounded review."
+        ),
         "findings": [
             {
                 "finding_id": f"F{index}",
                 "statement": f"Evidence was returned by {tool}.",
-                "evidence_type": "association" if causal else "direct",
-                "source_tools": [tool],
+                "claim_type": "analytical_finding" if causal else "verified_fact",
+                "evidence_ids": [evidence_ids[index - 1]],
             }
             for index, tool in enumerate(tools, start=1)
         ],
@@ -104,11 +122,30 @@ def state_for(
                 "hypothesis_id": "H1",
                 "status": "inconclusive" if causal else "supported",
                 "rationale": "Causal timing is unavailable." if causal else "Reports agree.",
-                "source_tools": tools,
+                "evidence_ids": evidence_ids,
             }
         ],
-        "recommendation": "Have an operations leader review the ranked evidence.",
-        "confidence": "medium",
+        "business_implications": [
+            {
+                "implication_id": "I1",
+                "statement": "The evidence supports a focused management review.",
+                "evidence_ids": evidence_ids,
+            }
+        ],
+        "recommendation": {
+            "recommendation_id": "R1",
+            "statement": "Have an operations leader review the ranked evidence.",
+            "rationale": "The deterministic reports identify the review scope.",
+            "evidence_ids": evidence_ids,
+            "human_review_required": True,
+        },
+        "confidence": {
+            "level": "medium",
+            "rationale": "The evidence is bounded to the approved synthetic sources.",
+            "evidence_coverage": "partial",
+            "source_agreement": "not_assessed",
+            "data_quality": "adequate",
+        },
         "unresolved_questions": ["Did the issue precede the change?"] if causal else [],
         "limitations": ["Association is not causation."] if causal else ["Synthetic data."],
     }
@@ -126,6 +163,9 @@ def state_for(
             "decisions": decisions,
             "actions": actions,
             "observations": tool_observations,
+            "evidence_ledger": EvidenceLedger(records=tuple(evidence_records)).model_dump(
+                mode="json"
+            ),
             "stop_reason": "The evidence gate is satisfied.",
             "conclusion": conclusion,
             "usage": {
@@ -147,6 +187,10 @@ def causal_state() -> InvestigationState:
         observations=[
             {
                 "source": source(),
+                "metric_definition": (
+                    "Opportunity ACV grouped by target close date and current final stage. "
+                    "This is not recognized revenue."
+                ),
                 "comparison": {
                     "baseline": 80_700_000,
                     "current": 31_175_000,
@@ -167,7 +211,7 @@ def test_causal_scenario_passes_all_reliability_gates() -> None:
     assert all(check.passed for check in result.checks)
 
 
-def test_evidence_mismatch_is_visible_without_hiding_other_checks() -> None:
+def test_observation_ledger_mismatch_is_visible_without_hiding_other_checks() -> None:
     state = causal_state()
     observations = list(state.observations)
     observations[0] = observations[0].model_copy(
@@ -188,7 +232,8 @@ def test_evidence_mismatch_is_visible_without_hiding_other_checks() -> None:
 
     checks = {check.name: check for check in result.checks}
     assert result.passed is False
-    assert checks["deterministic_evidence"].passed is False
+    assert checks["complete_evidence_ledger"].passed is False
+    assert checks["deterministic_evidence"].passed is True
     assert checks["grounded_citations"].passed is True
 
 
@@ -219,9 +264,7 @@ def test_support_scenario_accepts_a_descriptive_classification_and_list_anchor()
 def test_unsupported_significantly_comparison_fails_the_statistics_gate() -> None:
     state = causal_state()
     conclusion = state.conclusion.model_copy(
-        update={
-            "executive_summary": "The current value is significantly lower than baseline."
-        }
+        update={"executive_summary": "The current value is significantly lower than baseline."}
     )
     state = state.model_copy(update={"conclusion": conclusion})
 
@@ -229,6 +272,53 @@ def test_unsupported_significantly_comparison_fails_the_statistics_gate() -> Non
 
     checks = {check.name: check for check in result.checks}
     assert checks["no_unsupported_statistics"].passed is False
+
+
+def test_same_snapshot_cannot_be_claimed_as_independent_source_agreement() -> None:
+    state = causal_state()
+    confidence = state.conclusion.confidence.model_copy(
+        update={"source_agreement": "consistent"}
+    )
+    conclusion = state.conclusion.model_copy(update={"confidence": confidence})
+    state = state.model_copy(update={"conclusion": conclusion})
+
+    result = evaluate_investigation(CAUSAL_ATTRIBUTION, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["source_agreement_calibration"].passed is False
+
+
+def test_pipeline_acv_cannot_be_described_as_revenue() -> None:
+    state = causal_state()
+    conclusion = state.conclusion.model_copy(
+        update={"executive_summary": state.conclusion.executive_summary + " Revenue fell."}
+    )
+    state = state.model_copy(update={"conclusion": conclusion})
+
+    result = evaluate_investigation(CAUSAL_ATTRIBUTION, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["metric_definition_preserved"].passed is False
+
+
+def test_causal_warning_must_appear_in_the_executive_summary() -> None:
+    state = causal_state()
+    conclusion = state.conclusion.model_copy(
+        update={
+            "executive_summary": "The measured association is inconclusive.",
+            "limitations": [
+                *state.conclusion.limitations,
+                "The available evidence does not support attribution; causation remains "
+                "unresolved.",
+            ],
+        }
+    )
+    state = state.model_copy(update={"conclusion": conclusion})
+
+    result = evaluate_investigation(CAUSAL_ATTRIBUTION, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["question_appropriate_causal_language"].passed is False
 
 
 def test_suite_preserves_a_case_failure_as_a_result() -> None:

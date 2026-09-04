@@ -125,7 +125,7 @@ def main() -> int:
                 item.status == "inconclusive"
                 for item in state.conclusion.hypothesis_assessments
             )
-            and state.conclusion.confidence != "high",
+            and state.conclusion.confidence.level != "high",
             "no_false_statistical_claim": "statistical significance" not in conclusion_text
             and "statistically significant" not in conclusion_text,
         }

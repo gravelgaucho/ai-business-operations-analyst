@@ -99,7 +99,7 @@ make qualify-database
 
 The JSON path remains available as a reference implementation when `--database` is omitted.
 
-Run the Stage 7 public reliability suite through the verified database:
+Run the Stage 8 evidence-grounded reliability suite through the verified database:
 
 ```bash
 make qualify-evaluation
@@ -108,6 +108,21 @@ make qualify-evaluation
 The two scenarios run sequentially and can take several minutes with the qualified 27B local
 model. To diagnose one case, pass `--scenario causal_attribution` or
 `--scenario support_prioritization` to `scripts/qualify_evaluation.py`.
+
+The accepted Stage 8 milestone result is 2/2 scenarios and 18/18 gates per scenario. The
+verified local run completed in 240.645 seconds; timing and generated prose may vary on later
+runs, while deterministic evidence values and pass criteria must remain stable.
+
+Export a portable audit bundle while running one investigation:
+
+```bash
+business-ops-investigate \
+  --database data/derived/maple_payments.sqlite3 \
+  --audit-output artifacts/example-audit.json \
+  "Did open P1 support issues explain the Q1 2026 closed-won USD ACV decline versus Q4 2025?"
+```
+
+The audit path must not already exist. The command will not overwrite earlier evidence.
 
 Inspect both sides of the API boundary:
 

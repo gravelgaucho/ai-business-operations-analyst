@@ -14,12 +14,12 @@ from business_ops.evaluation import DEFAULT_SCENARIOS, run_evaluation_suite
 from business_ops.investigation import run_investigation
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACT = PROJECT_ROOT / "artifacts" / "stage7_qualification.json"
+ARTIFACT = PROJECT_ROOT / "artifacts" / "stage8_qualification.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the Stage 7 local-model reliability scenarios."
+        description="Run the Stage 8 evidence-grounded local-model reliability scenarios."
     )
     parser.add_argument(
         "--scenario",
@@ -52,7 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected,
     )
     artifact = {
-        "stage": 7,
+        "stage": 8,
+        "evidence_schema_version": "1.0",
         "generated_at": datetime.now(UTC).isoformat(),
         "model_id": settings.model_id,
         "base_url": settings.base_url,
