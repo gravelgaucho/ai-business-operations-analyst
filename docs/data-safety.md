@@ -18,7 +18,7 @@ An approved dataset must satisfy every requirement below:
 
 Stage 3 uses **DevRev Enterprise-Bench / Maple Payments**. DevRev describes every included
 account, user, email, ticket, opportunity, transcript, article, and internal document as
-synthetic benchmark data. The repository is published under Apache-2.0.
+synthetic benchmark data. The upstream dataset repository is published under Apache-2.0.
 
 The importer pins:
 

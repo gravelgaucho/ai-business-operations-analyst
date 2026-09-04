@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -234,6 +235,54 @@ def test_controller_selects_two_analyses_and_preserves_visible_state(
     assert "evidence gate is satisfied" in state.stop_reason
     assert state.usage.total_requests == 4
     assert state.usage.total_tool_calls == 2
+
+
+def test_controller_audits_an_explicit_causal_classification_correction(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    predictive_plan = json.loads(json.dumps(PLAN))
+    predictive_plan["question"]["question_type"] = "predictive"
+
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(predictive_plan)),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(CONCLUSION)),
+        data_root=dataset,
+    )
+
+    assert state.plan.question.question_type == "causal"
+    assert state.classification_correction is not None
+    assert state.classification_correction.model_output == "predictive"
+    assert state.classification_correction.enforced == "causal"
+
+
+def test_controller_enforces_quarter_windows_stated_in_the_question(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    wrong_period = PIPELINE_DECISION | {
+        "current_start": "2025-10-01",
+        "current_end": "2026-03-31",
+        "previous_start": "2025-10-01",
+        "previous_end": "2026-03-31",
+    }
+
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(PLAN)),
+        selector=selector_agent([wrong_period, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(CONCLUSION)),
+        data_root=dataset,
+    )
+
+    decision = state.decisions[0]
+    assert decision.current_start == date(2026, 1, 1)
+    assert decision.current_end == date(2026, 3, 31)
+    assert decision.previous_start == date(2025, 10, 1)
+    assert decision.previous_end == date(2025, 12, 31)
+    assert state.observations[0].content["comparison"]["absolute_change"] == -700
 
 
 def test_selector_retries_a_tool_outside_the_remaining_plan(

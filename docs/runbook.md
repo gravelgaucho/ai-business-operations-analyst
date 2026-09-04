@@ -99,6 +99,16 @@ make qualify-database
 
 The JSON path remains available as a reference implementation when `--database` is omitted.
 
+Run the Stage 7 public reliability suite through the verified database:
+
+```bash
+make qualify-evaluation
+```
+
+The two scenarios run sequentially and can take several minutes with the qualified 27B local
+model. To diagnose one case, pass `--scenario causal_attribution` or
+`--scenario support_prioritization` to `scripts/qualify_evaluation.py`.
+
 Inspect both sides of the API boundary:
 
 ```bash

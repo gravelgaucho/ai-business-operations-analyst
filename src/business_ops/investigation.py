@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
@@ -43,6 +45,13 @@ PLAN_USAGE_LIMITS = UsageLimits(request_limit=3)
 STEP_USAGE_LIMITS = UsageLimits(request_limit=3)
 SYNTHESIS_USAGE_LIMITS = UsageLimits(request_limit=4)
 MAX_ANALYSIS_STEPS = 4
+UNSUPPORTED_STATISTICAL_LANGUAGE = (
+    "statistical significance",
+    "statistically significant",
+    "significantly higher",
+    "significantly lower",
+    "significantly different",
+)
 
 
 class InvestigationModel(BaseModel):
@@ -169,9 +178,16 @@ class InvestigationUsage(InvestigationModel):
     total_tool_calls: int
 
 
+class ClassificationCorrection(InvestigationModel):
+    model_output: QuestionType
+    enforced: QuestionType
+    reason: str
+
+
 class InvestigationState(InvestigationModel):
     original_question: str
     plan: InvestigationPlan
+    classification_correction: ClassificationCorrection | None = None
     decisions: list[AnalysisDecision]
     actions: list[ToolCallTrace]
     observations: list[ToolObservation]
@@ -200,8 +216,11 @@ class SynthesisDependencies:
 PLANNER_INSTRUCTIONS = """
 Convert the user's business question into a bounded investigation plan; do not answer it.
 
-Classify the question using only stated or clearly implied details. Propose one or two
-falsifiable hypotheses and two or three steps using only these exact analysis names:
+Classify the question using only stated or clearly implied details. Predictive means the user
+explicitly asks to forecast an unknown future outcome. Prescriptive means the user asks what
+action to take or what to review first. Descriptive means the user asks for a current ranking
+or measurement. Never classify prioritization from current measured exposure as predictive.
+Propose one or two falsifiable hypotheses and two or three steps using only these exact names:
 get_account_support_risk, get_product_area_support_risk, compare_closed_won_pipeline, and
 test_support_pipeline_overlap. Use at least two distinct analyses. For a possible
 support-versus-pipeline relationship, include test_support_pipeline_overlap so Python—not
@@ -210,6 +229,9 @@ that match what these tools can actually measure. Do not claim that association 
 causation, and list missing information in the nested question classification. None of the
 available analyses calculates statistical significance, a correlation coefficient, or
 historical ticket status, so never promise those measurements in a success criterion.
+For a causal question, frame every hypothesis as a measurable association screen. Do not
+write a null hypothesis that says another factor caused or drove the outcome, because the
+available reports cannot establish either the proposed cause or an alternative cause.
 """.strip()
 
 
@@ -234,8 +256,16 @@ history, or causal evidence is missing, state the gap explicitly. Recommend only
 or further analysis; never imply that an external action was taken. For a causal question,
 the current tools cannot establish causation because ticket timing and history are absent:
 all hypotheses must remain inconclusive and confidence cannot be high. Never claim
-statistical significance because no available analysis performs a statistical test. Use no
-more than three findings and keep the executive summary under 100 words.
+statistical significance because no available analysis performs a statistical test. Do not
+use the phrases "statistical significance" or "statistically significant" anywhere in the
+conclusion, and do not describe a difference as "significantly" higher, lower, or different.
+When relevant, say "no statistical test was performed." Use no more than three findings and
+keep the executive summary under 100 words.
+
+For every causal question, include this exact sentence in the executive summary: "The
+available evidence does not support attribution; causation remains unresolved." Never use
+"does not explain", "did not explain", "caused the", "drove the", "driven by", or "primary
+driver" anywhere in the conclusion.
 """.strip()
 
 
@@ -383,6 +413,58 @@ def _decision_arguments(decision: AnalysisDecision) -> dict[str, Any]:
     }
 
 
+def _explicit_question_type(question: str) -> QuestionType | None:
+    lowered = question.lower()
+    if re.search(r"\b(why|cause|caused|causing|driver|drove|driven|explain|explained)\b", lowered):
+        return QuestionType.CAUSAL
+    if re.search(r"\b(forecast|predict|project|projected|future|will)\b", lowered):
+        return QuestionType.PREDICTIVE
+    if re.search(r"\b(should|recommend|recommendation|prioritize)\b|review first", lowered):
+        return QuestionType.PRESCRIPTIVE
+    if re.search(r"\b(versus|compare|compared)\b", lowered):
+        return QuestionType.COMPARATIVE
+    return None
+
+
+def _quarter_range(year: int, quarter: int) -> tuple[date, date]:
+    start_month = (quarter - 1) * 3 + 1
+    end_month = start_month + 2
+    return date(year, start_month, 1), date(
+        year, end_month, calendar.monthrange(year, end_month)[1]
+    )
+
+
+def _explicit_quarter_comparison(question: str) -> tuple[date, date, date, date] | None:
+    matches = {
+        (int(year), int(quarter))
+        for quarter, year in re.findall(r"\bQ([1-4])\s*(20\d{2})\b", question, re.IGNORECASE)
+    }
+    if len(matches) != 2:
+        return None
+    ordered = sorted(_quarter_range(year, quarter) for year, quarter in matches)
+    previous, current = ordered
+    return current[0], current[1], previous[0], previous[1]
+
+
+def _apply_explicit_periods(
+    decision: AnalysisDecision, periods: tuple[date, date, date, date] | None
+) -> AnalysisDecision:
+    if periods is None or decision.analysis not in {
+        AnalysisKind.CLOSED_WON_PIPELINE,
+        AnalysisKind.SUPPORT_PIPELINE_OVERLAP,
+    }:
+        return decision
+    current_start, current_end, previous_start, previous_end = periods
+    return decision.model_copy(
+        update={
+            "current_start": current_start,
+            "current_end": current_end,
+            "previous_start": previous_start,
+            "previous_end": previous_end,
+        }
+    )
+
+
 def _execute_analysis(source: DataSource, decision: AnalysisDecision) -> Any:
     arguments = _decision_arguments(decision)
     try:
@@ -409,6 +491,11 @@ def _evidence_gate_satisfied(plan: InvestigationPlan, used: set[AnalysisKind]) -
         AnalysisKind.SUPPORT_PIPELINE_OVERLAP not in planned
         or AnalysisKind.SUPPORT_PIPELINE_OVERLAP in used
     )
+
+
+def has_unsupported_statistical_language(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in UNSUPPORTED_STATISTICAL_LANGUAGE)
 
 
 def _validate_completed_investigation(
@@ -443,11 +530,11 @@ def _validate_completed_investigation(
         errors.append(f"Remove citations to analyses that were not executed: {invalid}.")
 
     conclusion_text = conclusion.model_dump_json().lower()
-    unsupported_statistics = ("statistical significance", "statistically significant")
-    if any(phrase in conclusion_text for phrase in unsupported_statistics):
+    if has_unsupported_statistical_language(conclusion_text):
         errors.append(
-            "Do not claim statistical significance; no executed analysis performs a "
-            "statistical test. Describe only the observed counts and shares."
+            "Remove statistical-significance language, including 'significantly' higher, "
+            "lower, or different; no executed analysis performs a statistical test. State "
+            "the exact values and say 'no statistical test was performed' when relevant."
         )
 
     if plan.question.question_type == QuestionType.CAUSAL:
@@ -530,6 +617,9 @@ def run_investigation(
         raise ValueError("question cannot be empty.")
 
     root = (data_root or default_data_root()).resolve()
+    explicit_type = _explicit_question_type(question)
+    explicit_periods = _explicit_quarter_comparison(question)
+    classification_correction: ClassificationCorrection | None = None
     decision_deps: DecisionDependencies | None = None
     synthesis_deps: SynthesisDependencies | None = None
     try:
@@ -554,6 +644,19 @@ def run_investigation(
         with asyncio.Runner() as runner:
             plan_result = runner.run(planner.run(question, usage_limits=plan_usage_limits))
             plan = plan_result.output
+            if explicit_type is not None and plan.question.question_type != explicit_type:
+                classification_correction = ClassificationCorrection(
+                    model_output=plan.question.question_type,
+                    enforced=explicit_type,
+                    reason="The original question contains an unambiguous analytical-intent cue.",
+                )
+                plan = plan.model_copy(
+                    update={
+                        "question": plan.question.model_copy(
+                            update={"question_type": explicit_type}
+                        )
+                    }
+                )
             planned_order = tuple(dict.fromkeys(step.analysis for step in plan.steps))
 
             while not _evidence_gate_satisfied(
@@ -578,7 +681,7 @@ def run_investigation(
                         usage_limits=step_usage_limits,
                     )
                 )
-                decision = decision_result.output
+                decision = _apply_explicit_periods(decision_result.output, explicit_periods)
                 report = _execute_analysis(source, decision)
                 decisions.append(decision)
                 actions.append(
@@ -613,6 +716,15 @@ def run_investigation(
                 + "\n".join(item.model_dump_json(indent=2) for item in observations)
                 + f"\n\nStop reason:\n{stop_reason}"
             )
+            if plan.question.question_type == QuestionType.CAUSAL:
+                synthesis_prompt += (
+                    "\n\nMandatory causal-language policy:\n"
+                    '- Include exactly: "The available evidence does not support attribution; '
+                    'causation remains unresolved."\n'
+                    "- Mark every hypothesis inconclusive.\n"
+                    "- Do not state that the proposed cause did or did not explain, cause, "
+                    "drive, or primarily drive the outcome."
+                )
             synthesis_deps = SynthesisDependencies(plan=plan, actions=tuple(actions))
             synthesis_result = runner.run(
                 synthesizer.run(
@@ -645,6 +757,7 @@ def run_investigation(
     return InvestigationState(
         original_question=question,
         plan=plan,
+        classification_correction=classification_correction,
         decisions=decisions,
         actions=actions,
         observations=observations,

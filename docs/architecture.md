@@ -1,4 +1,4 @@
-# Architecture through Stage 6
+# Architecture through Stage 7
 
 ## Decision
 
@@ -73,6 +73,20 @@ and records source provenance inside the database. Runtime SQL connections use r
 query-only modes. Reports and agent tools receive the repository interface rather than SQL,
 so storage can change without changing prompts, schemas, or investigation control.
 
+Stage 7 adds a model-neutral evaluator after the investigation boundary. Versioned scenarios
+declare accepted question types, required analyses, exact deterministic evidence anchors,
+and execution budgets. The evaluator scores the completed typed state, so it can compare
+models and controller versions without importing MLX, Qwen, provider, or data-storage
+internals. The small public suite proves this contract; a larger product evaluation library
+can remain private.
+
+Two deterministic input guards sit inside the controller. Explicit causal, predictive,
+prescriptive, or comparative wording takes precedence over a contradictory model label, and
+the correction is recorded in `InvestigationState`. When a question names exactly two
+calendar quarters, ordinary date logic supplies their non-overlapping start and end dates to
+pipeline reports. The model still chooses the analysis and explains its rationale; it cannot
+silently reinterpret explicit periods.
+
 ## Why this baseline
 
 `Qwen3.8-27B` is the current dense 27B model in the requested Qwen3.8 class. The MLX
@@ -91,6 +105,7 @@ the same external qualification contract before replacement.
 - No UI
 - No production serving claims
 - No vision qualification yet
+- No proprietary scenario library or product-specific scoring logic
 
 The application owns the bounded investigation loop. There is typed planning state, but no
 long-lived memory, delegation, self-modifying plan, or open-ended autonomy.
@@ -113,3 +128,6 @@ package versions, and sampled peak server RSS.
 The relational layer qualifies separately: source provenance and row counts must match,
 every report must equal the JSON reference, runtime writes must fail, and the period query
 must use its composite index.
+
+The Stage 7 suite qualifies the end-to-end investigation separately: every public scenario
+must pass all behavior, provenance, evidence, grounding, safety, and request-budget gates.
