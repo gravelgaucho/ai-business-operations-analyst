@@ -1,6 +1,6 @@
 [project]
 name = "ai-business-operations-analyst"
-version = "0.9.0"
+version = "0.10.0"
 description = "A local-first, evidence-grounded AI business analyst."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -19,6 +19,7 @@ business-ops = "business_ops.cli:main"
 business-ops-analytics = "business_ops.analytics_cli:main"
 business-ops-analyze = "business_ops.analyst_cli:main"
 business-ops-classify = "business_ops.classify_cli:main"
+business-ops-catalog = "business_ops.catalog_cli:main"
 business-ops-database = "business_ops.database_cli:main"
 business-ops-investigate = "business_ops.investigation_cli:main"
 

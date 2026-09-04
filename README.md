@@ -18,8 +18,9 @@ important claims can be audited back to internal evidence.
 | Stage 6 — verified relational data layer | Complete | Tagged `v0.7-sql-data-layer` |
 | Stage 7 — repeatable reliability evaluation | Complete | Tagged `v0.8-evaluation-suite` |
 | Stage 8 — claim-level evidence provenance | Complete | Tagged `v0.9-evidence-provenance` |
+| Stage 9 — source and capability catalog | Complete | Tagged `v0.10-source-capability-catalog` |
 
-This repository contains nine foundations:
+This repository contains ten foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -44,6 +45,9 @@ This repository contains nine foundations:
 - **Stage 8 — Claim-Level Evidence Provenance:** turn every deterministic observation into a
   content-addressed evidence record, require material claims and recommendations to cite
   stable evidence IDs, and export a portable audit bundle for independent review.
+- **Stage 9 — Source and Capability Catalog:** give planning, execution, provenance, and
+  evaluation one typed, content-addressed definition of approved sources, business entities,
+  metric semantics, analytical capabilities, and interpretation limits.
 
 ## What Stage 0 proves
 
@@ -97,6 +101,12 @@ closed-won opportunity ACV metric and recorded the controller's conservative cau
 correction. See
 [docs/stage-8-evidence-provenance.md](docs/stage-8-evidence-provenance.md).
 
+Stage 9 added two catalog-governance gates and passed both scenarios at 20/20 in 240.783
+seconds. The model planned from the approved catalog, executed exactly the four expected
+scenario analyses, and produced evidence whose registered method versions, implementations,
+read-only tables, and source identity all matched the embedded catalog snapshot. See
+[docs/stage-9-source-capability-catalog.md](docs/stage-9-source-capability-catalog.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -115,6 +125,7 @@ In a second terminal:
 ```bash
 business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
 business-ops-classify "Why did Northeast revenue decline last quarter?"
+business-ops-catalog --planning-view
 business-ops-analytics account-risk
 business-ops-analytics product-risk --top 5
 business-ops-analytics pipeline-change --top 5
@@ -141,6 +152,8 @@ snapshot for this milestone is summarized in [docs/qualification.md](docs/qualif
 scripts/start_server.sh     Local-only model server launcher
 scripts/qualify.py          End-to-end API and performance qualification
 src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
+src/business_ops/catalog.py Approved source, entity, metric, and analytical-capability catalog
+src/business_ops/catalog_cli.py Human- and machine-readable catalog inspection
 src/business_ops/cli.py     Inspectable business-question command line
 src/business_ops/questions.py  Validated business-question contract
 src/business_ops/classifier.py Pydantic AI structured-output boundary
@@ -163,14 +176,17 @@ docs/stage-5-investigation-agent.md Multi-step controller and verified investiga
 docs/stage-6-sql-data-layer.md Relational schema, parity proof, and measured results
 docs/stage-7-evaluation-suite.md Public scenario contract and commercial evaluation boundary
 docs/stage-8-evidence-provenance.md Claim-level citations and audit-bundle walkthrough
+docs/stage-9-source-capability-catalog.md Governed discovery and semantic-boundary walkthrough
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 8 still evaluates only four read-only reports over DevRev's synthetic, Apache-2.0
+Stage 9 still exposes only four read-only reports over DevRev's synthetic, Apache-2.0
 licensed Maple Payments data. Its investigation loop is capped at four distinct analyses.
-The evidence architecture is general, but the current source adapters and analyses are not.
+The catalog and evidence contracts are general, but the current source adapter and analyses
+are not. Cataloging an entity or modality does not make it queryable; execution requires an
+explicitly registered capability.
 It does **not** add MCP, RAG, private business data, write actions, arbitrary queries,
 long-lived memory, or a user interface.
 

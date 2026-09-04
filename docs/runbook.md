@@ -51,6 +51,18 @@ The command prints JSON only, so a later application can consume it directly. Th
 model receives a native JSON Schema derived from `BusinessQuestion`. Invalid output is
 returned to the model for correction up to two times before the command fails clearly.
 
+Inspect the Stage 9 approved source and analytical-capability catalog without starting the
+model server:
+
+```bash
+make catalog
+business-ops-catalog
+```
+
+The compact planning view shows what the analyst may use. The full view also includes entity
+definitions, metric semantics, source locators, implementation identities, and interpretation
+boundaries. Its SHA-256 digest changes if any governed definition changes.
+
 Run deterministic Stage 3 analysis without starting the model server:
 
 ```bash
@@ -99,7 +111,7 @@ make qualify-database
 
 The JSON path remains available as a reference implementation when `--database` is omitted.
 
-Run the Stage 8 evidence-grounded reliability suite through the verified database:
+Run the current catalog- and evidence-grounded reliability suite through the verified database:
 
 ```bash
 make qualify-evaluation
@@ -109,9 +121,10 @@ The two scenarios run sequentially and can take several minutes with the qualifi
 model. To diagnose one case, pass `--scenario causal_attribution` or
 `--scenario support_prioritization` to `scripts/qualify_evaluation.py`.
 
-The accepted Stage 8 milestone result is 2/2 scenarios and 18/18 gates per scenario. The
-verified local run completed in 240.645 seconds; timing and generated prose may vary on later
-runs, while deterministic evidence values and pass criteria must remain stable.
+The Stage 9 suite adds catalog-integrity and catalog-to-execution alignment gates to the Stage
+8 contract. The accepted milestone result is 2/2 scenarios and 20/20 gates per scenario. The
+verified run completed in 240.783 seconds. Timing and generated prose may vary between runs,
+while deterministic evidence, catalog alignment, and pass criteria must remain stable.
 
 Export a portable audit bundle while running one investigation:
 

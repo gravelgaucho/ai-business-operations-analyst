@@ -120,10 +120,10 @@ successfully round-tripped through independent schema validation. The causal con
 recorded a `causal_decision_boundary` correction to the business implication and
 recommendation. No deterministic result, citation, or evidence record changed.
 
-The complete machine-specific result is written to the ignored
-`artifacts/stage8_qualification.json` file when `make qualify-evaluation` runs. The documented
-values above are the public milestone record; the large raw output stays local because model
-wording, token counts, and timings can vary between runs.
+At the Stage 8 tag, the complete machine-specific result was written to the ignored
+`artifacts/stage8_qualification.json` file. The current `make qualify-evaluation` target writes
+the expanded Stage 9 artifact. The documented values above remain the public Stage 8 record;
+large raw outputs stay local because model wording, token counts, and timings can vary.
 
 ## Current limitation
 

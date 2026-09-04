@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from business_ops.catalog import DEFAULT_CATALOG, CapabilityCatalog
 from business_ops.config import Settings
 from business_ops.datasets.download import DatasetImportError, verify_dataset
 from business_ops.datasets.enterprise_bench import (
@@ -165,21 +167,40 @@ ANALYTICS_TOOLS = (
 )
 
 
-def create_analytics_agent(model: Model) -> Agent[AnalystDependencies, str]:
+def analyst_instructions(catalog: CapabilityCatalog = DEFAULT_CATALOG) -> str:
+    return (
+        ANALYST_INSTRUCTIONS
+        + "\n\nApproved source and analytical-capability catalog:\n"
+        + json.dumps(catalog.planning_context(), indent=2)
+    )
+
+
+def create_analytics_agent(
+    model: Model, catalog: CapabilityCatalog = DEFAULT_CATALOG
+) -> Agent[AnalystDependencies, str]:
     """Create the tool-backed agent independently of any particular model provider."""
 
+    tools_by_name = {tool.name: tool for tool in ANALYTICS_TOOLS}
+    if missing := catalog.capability_ids - tools_by_name.keys():
+        raise ValueError(f"Catalog capabilities have no reviewed runtime tool: {sorted(missing)}")
+    approved_tools = tuple(
+        tools_by_name[capability.capability_id] for capability in catalog.capabilities
+    )
     agent = Agent(
         model,
         deps_type=AnalystDependencies,
-        instructions=ANALYST_INSTRUCTIONS,
+        instructions=analyst_instructions(catalog),
         model_settings={"temperature": 0.0, "max_tokens": 1024},
         retries=2,
-        tools=ANALYTICS_TOOLS,
+        tools=approved_tools,
     )
     return agent
 
 
-def build_analytics_agent(settings: Settings | None = None) -> Agent[AnalystDependencies, str]:
+def build_analytics_agent(
+    settings: Settings | None = None,
+    catalog: CapabilityCatalog = DEFAULT_CATALOG,
+) -> Agent[AnalystDependencies, str]:
     """Build the analyst for an OpenAI-compatible model endpoint."""
 
     runtime = settings or Settings.from_environment()
@@ -192,7 +213,7 @@ def build_analytics_agent(settings: Settings | None = None) -> Agent[AnalystDepe
         runtime.model_id,
         provider=OpenAIProvider(openai_client=openai_client),
     )
-    return create_analytics_agent(model)
+    return create_analytics_agent(model, catalog)
 
 
 def extract_tool_trace(messages: list[ModelMessage]) -> list[ToolCallTrace]:
@@ -217,6 +238,7 @@ def run_analysis(
     settings: Settings | None = None,
     data_root: Path | None = None,
     database_path: Path | None = None,
+    capability_catalog: CapabilityCatalog = DEFAULT_CATALOG,
     usage_limits: UsageLimits = DEFAULT_USAGE_LIMITS,
 ) -> AnalysisRun:
     """Run one bounded, tool-backed analysis against the verified synthetic dataset."""
@@ -233,7 +255,7 @@ def run_analysis(
             if database_path is not None
             else None
         )
-        analyst = agent or build_analytics_agent(settings)
+        analyst = agent or build_analytics_agent(settings, capability_catalog)
         with asyncio.Runner() as runner:
             result = runner.run(
                 analyst.run(

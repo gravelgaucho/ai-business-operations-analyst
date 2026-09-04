@@ -1,4 +1,4 @@
-# Architecture through Stage 8
+# Architecture through Stage 9
 
 ## Decision
 
@@ -27,6 +27,9 @@ configuration.
                                  JSON reference               SQLite read-only
                                       |                             |
                                       +------ verified source ------+
+                                                    |
+                                                    v
+                                       source + semantic catalog
                                                     |
                                                     v
                                       content-addressed evidence ledger
@@ -113,6 +116,20 @@ bundle. Evidence records, calculations, and citations remain unchanged. Invalid 
 missing hypothesis assessments, unsupported statistics, and unjustified causal confidence are
 not papered over; they remain validation failures or model retries.
 
+Stage 9 replaces duplicated source and tool descriptions with a typed capability catalog. A
+content digest covers the approved source snapshot, business entities, metric definitions,
+analytical capabilities, parameters, outputs, source locators, implementations, and
+interpretation boundaries. The planner and direct analyst receive a compact catalog view.
+Evidence construction reads its source locator, method version, and implementation identity
+from the same definitions, and evaluation confirms that the plan, execution trace, and
+evidence ledger remain aligned with them.
+
+The complete catalog snapshot is stored in investigation state and portable audit bundles.
+This answers an important audit question: not only “what evidence supported the answer?” but
+also “what sources and tools were approved when the system formed its plan?” A catalog digest
+changes whenever a governed definition changes, so an earlier investigation cannot silently
+inherit later semantics.
+
 ## Revised product boundary
 
 The product direction is now a general local AI business analyst, not a Maple-specific support
@@ -172,7 +189,8 @@ The relational layer qualifies separately: source provenance and row counts must
 every report must equal the JSON reference, runtime writes must fail, and the period query
 must use its composite index.
 
-The Stage 8 suite qualifies the end-to-end investigation separately: every public scenario
+The Stage 9 suite qualifies the end-to-end investigation separately: every public scenario
 must pass behavior, source provenance, evidence integrity, claim-level citation, grounding,
-safety, and request-budget gates. The September 4, 2026 milestone run passed both public
-scenarios at 18/18 gates each in 240.645 seconds using the local 27B baseline.
+safety, catalog integrity, catalog-to-execution alignment, and request-budget gates. The
+September 4, 2026 milestone run passed both scenarios at 20/20 gates each in 240.783 seconds
+using the local 27B baseline.

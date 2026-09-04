@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from business_ops.catalog import DEFAULT_CATALOG
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.evaluation import (
     CAUSAL_ATTRIBUTION,
@@ -159,6 +160,7 @@ def state_for(
     return InvestigationState.model_validate(
         {
             "original_question": question,
+            "capability_catalog": DEFAULT_CATALOG.model_dump(mode="json"),
             "plan": plan,
             "decisions": decisions,
             "actions": actions,
@@ -235,6 +237,27 @@ def test_observation_ledger_mismatch_is_visible_without_hiding_other_checks() ->
     assert checks["complete_evidence_ledger"].passed is False
     assert checks["deterministic_evidence"].passed is True
     assert checks["grounded_citations"].passed is True
+
+
+def test_evidence_method_must_match_the_capability_catalog() -> None:
+    state = causal_state()
+    records = list(state.evidence_ledger.records)
+    records[0] = records[0].model_copy(
+        update={
+            "method": records[0].method.model_copy(
+                update={"implementation": "business_ops.reports.unapproved_report"}
+            )
+        }
+    )
+    state = state.model_copy(
+        update={"evidence_ledger": state.evidence_ledger.model_copy(update={"records": records})}
+    )
+
+    result = evaluate_investigation(CAUSAL_ATTRIBUTION, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["catalog_execution_alignment"].passed is False
+    assert checks["tamper_evident_evidence"].passed is False
 
 
 def test_support_scenario_accepts_a_descriptive_classification_and_list_anchor() -> None:

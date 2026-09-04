@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from business_ops.datasets.download import ENTERPRISE_BENCH
+from business_ops.catalog import DEFAULT_CATALOG, CapabilityCatalog
 
 
 class ProvenanceModel(BaseModel):
@@ -43,7 +43,7 @@ class EvidenceSource(ProvenanceModel):
 class EvidenceMethod(ProvenanceModel):
     tool_name: str = Field(min_length=1)
     implementation: str = Field(min_length=1)
-    method_version: str = "stage-8-v1"
+    method_version: str = Field(min_length=1)
     arguments: dict[str, Any]
     calculation: str | None = None
     metric_definition: str | None = None
@@ -104,6 +104,7 @@ class AuditBundle(ProvenanceModel):
     schema_version: Literal["1.0"] = "1.0"
     investigation_id: str = Field(pattern=r"^INV-[0-9a-f]{16}$")
     question: str
+    capability_catalog: CapabilityCatalog
     investigation_plan: dict[str, Any]
     controller_corrections: tuple[dict[str, Any], ...] = ()
     source_snapshots: tuple[EvidenceSource, ...] = Field(min_length=1)
@@ -123,8 +124,43 @@ class AuditBundle(ProvenanceModel):
         missing = cited - self.evidence_ledger.evidence_ids
         if missing:
             raise ValueError(f"audit claims cite unknown evidence IDs: {sorted(missing)}")
+
+        planned_capabilities = {
+            str(step.get("analysis"))
+            for step in self.investigation_plan.get("steps", [])
+            if isinstance(step, dict)
+        }
+        unknown_planned = planned_capabilities - self.capability_catalog.capability_ids
+        if unknown_planned:
+            raise ValueError(
+                f"audit plan references unknown capabilities: {sorted(unknown_planned)}"
+            )
+        for evidence_record in self.evidence_ledger.records:
+            try:
+                capability = self.capability_catalog.capability(
+                    evidence_record.method.tool_name
+                )
+                source = self.capability_catalog.source(capability.source_ids[0])
+            except KeyError as exc:
+                raise ValueError("audit evidence references an unknown catalog entry") from exc
+            expected_locators = (
+                capability.json_files
+                if evidence_record.source.access_mode == "authenticated_json"
+                else capability.sqlite_tables
+            )
+            if (
+                evidence_record.method.implementation != capability.implementation
+                or evidence_record.method.method_version != capability.method_version
+                or evidence_record.source.source_id != source.source_id
+                or evidence_record.source.source_commit != source.source_commit
+                or evidence_record.source.snapshot_sha256 != source.snapshot_sha256
+                or tuple(item.locator for item in evidence_record.source.locators)
+                != expected_locators
+            ):
+                raise ValueError("audit evidence does not match the embedded capability catalog")
         identity_payload = {
             "question": self.question,
+            "capability_catalog_digest": self.capability_catalog.catalog_digest,
             "investigation_plan": self.investigation_plan,
             "controller_corrections": self.controller_corrections,
             "evidence_ids": [
@@ -137,47 +173,6 @@ class AuditBundle(ProvenanceModel):
         if self.investigation_id != investigation_id(identity_payload):
             raise ValueError("investigation ID does not match the audit bundle content")
         return self
-
-
-_SOURCE_FILES = {
-    "get_account_support_risk": (
-        "crm_json_data/accounts.json",
-        "crm_json_data/tickets.json",
-    ),
-    "get_product_area_support_risk": (
-        "crm_json_data/accounts.json",
-        "crm_json_data/tickets.json",
-        "pm_json_data/maple_parts.json",
-    ),
-    "compare_closed_won_pipeline": (
-        "crm_json_data/accounts.json",
-        "crm_json_data/opportunities.json",
-    ),
-    "test_support_pipeline_overlap": (
-        "crm_json_data/accounts.json",
-        "crm_json_data/opportunities.json",
-        "crm_json_data/tickets.json",
-    ),
-}
-
-_SOURCE_TABLES = {
-    "get_account_support_risk": ("accounts", "tickets"),
-    "get_product_area_support_risk": (
-        "accounts",
-        "tickets",
-        "product_parts",
-        "ticket_components",
-    ),
-    "compare_closed_won_pipeline": ("accounts", "opportunities"),
-    "test_support_pipeline_overlap": ("accounts", "opportunities", "tickets"),
-}
-
-_IMPLEMENTATIONS = {
-    "get_account_support_risk": "business_ops.reports.account_risk_report",
-    "get_product_area_support_risk": "business_ops.reports.product_risk_report",
-    "compare_closed_won_pipeline": "business_ops.reports.pipeline_change_report",
-    "test_support_pipeline_overlap": "business_ops.reports.support_pipeline_link_report",
-}
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -234,6 +229,7 @@ def build_evidence_record(
     arguments: dict[str, Any],
     result: dict[str, Any],
     source: Path | object,
+    catalog: CapabilityCatalog = DEFAULT_CATALOG,
 ) -> EvidenceRecord:
     """Create one tamper-evident evidence record from a deterministic report."""
 
@@ -243,26 +239,29 @@ def build_evidence_record(
     source_kind: Literal["file", "table"] = (
         "file" if access_mode == "authenticated_json" else "table"
     )
+    capability = catalog.capability(tool_name)
+    source_definition = catalog.source(capability.source_ids[0])
     locator_values = (
-        _SOURCE_FILES[tool_name]
+        capability.json_files
         if access_mode == "authenticated_json"
-        else _SOURCE_TABLES[tool_name]
+        else capability.sqlite_tables
     )
     source_metadata = result.get("source", {})
     evidence_source = EvidenceSource(
-        source_id="devrev-enterprise-bench-maple-payments",
-        dataset=str(source_metadata.get("dataset", ENTERPRISE_BENCH.name)),
-        source_repository=ENTERPRISE_BENCH.source_repository,
-        source_commit=str(source_metadata.get("source_commit", ENTERPRISE_BENCH.source_commit)),
-        snapshot_sha256=ENTERPRISE_BENCH.sha256,
-        license=str(source_metadata.get("license", ENTERPRISE_BENCH.license)),
-        synthetic=bool(source_metadata.get("synthetic", ENTERPRISE_BENCH.synthetic)),
+        source_id=source_definition.source_id,
+        dataset=str(source_metadata.get("dataset", source_definition.display_name)),
+        source_repository=source_definition.source_repository,
+        source_commit=str(source_metadata.get("source_commit", source_definition.source_commit)),
+        snapshot_sha256=source_definition.snapshot_sha256,
+        license=str(source_metadata.get("license", source_definition.license)),
+        synthetic=bool(source_metadata.get("synthetic", source_definition.synthetic)),
         access_mode=access_mode,
         locators=tuple(SourceLocator(kind=source_kind, locator=value) for value in locator_values),
     )
     method = EvidenceMethod(
         tool_name=tool_name,
-        implementation=_IMPLEMENTATIONS[tool_name],
+        implementation=capability.implementation,
+        method_version=capability.method_version,
         arguments=arguments,
         calculation=result.get("calculation"),
         metric_definition=result.get("metric_definition"),

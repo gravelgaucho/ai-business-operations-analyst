@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from pydantic_ai import ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from business_ops.catalog import catalog_digest
 from business_ops.datasets.sqlite_store import build_database
 from business_ops.investigation import (
     InvestigationError,
@@ -333,6 +334,8 @@ def test_audit_bundle_is_self_contained_and_round_trips(
     restored = AuditBundle.model_validate_json(bundle.model_dump_json())
 
     assert restored.investigation_id == bundle.investigation_id
+    assert restored.capability_catalog.catalog_version == "stage-9-v1"
+    assert restored.capability_catalog.catalog_digest == state.capability_catalog.catalog_digest
     assert len(restored.evidence_ledger.records) == 2
     assert {claim.claim_type for claim in restored.claims} == {
         "verified_fact",
@@ -351,6 +354,21 @@ def test_audit_bundle_is_self_contained_and_round_trips(
     tampered["conclusion"]["executive_summary"] = "A changed conclusion."
     with pytest.raises(ValidationError, match="investigation ID"):
         AuditBundle.model_validate(tampered)
+
+    mismatched = bundle.model_dump(mode="python")
+    catalog = mismatched["capability_catalog"]
+    evidence_method = mismatched["evidence_ledger"]["records"][0]["method"]
+    capability = next(
+        item
+        for item in catalog["capabilities"]
+        if item["capability_id"] == evidence_method["tool_name"]
+    )
+    capability["implementation"] = "business_ops.reports.unapproved_report"
+    catalog["catalog_digest"] = catalog_digest(
+        {key: value for key, value in catalog.items() if key != "catalog_digest"}
+    )
+    with pytest.raises(ValidationError, match="embedded capability catalog"):
+        AuditBundle.model_validate(mismatched)
 
 
 def test_cli_writes_audit_bundle_without_overwriting_existing_evidence(

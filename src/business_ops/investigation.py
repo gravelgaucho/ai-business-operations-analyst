@@ -19,6 +19,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from business_ops.analyst import ToolCallTrace, UsageSummary
+from business_ops.catalog import DEFAULT_CATALOG, CapabilityCatalog
 from business_ops.config import Settings
 from business_ops.datasets.download import DatasetImportError, verify_dataset
 from business_ops.datasets.enterprise_bench import EnterpriseBenchDataError, default_data_root
@@ -262,6 +263,7 @@ class ConclusionCorrection(InvestigationModel):
 
 class InvestigationState(InvestigationModel):
     original_question: str
+    capability_catalog: CapabilityCatalog
     plan: InvestigationPlan
     classification_correction: ClassificationCorrection | None = None
     plan_correction: PlanCorrection | None = None
@@ -300,9 +302,8 @@ Classify the question using only stated or clearly implied details. Predictive m
 explicitly asks to forecast an unknown future outcome. Prescriptive means the user asks what
 action to take or what to review first. Descriptive means the user asks for a current ranking
 or measurement. Never classify prioritization from current measured exposure as predictive.
-Propose one or two falsifiable hypotheses and two or three steps using only these exact names:
-get_account_support_risk, get_product_area_support_risk, compare_closed_won_pipeline, and
-test_support_pipeline_overlap. Use at least two distinct analyses. For a possible
+Propose one or two falsifiable hypotheses and two or three steps using only capability IDs
+present in the supplied approved catalog. Use at least two distinct analyses. For a possible
 support-versus-pipeline relationship, include test_support_pipeline_overlap so Python—not
 the language model—performs the cross-system comparison. Define observable success criteria
 that match what these tools can actually measure. Do not claim that association proves
@@ -359,8 +360,18 @@ causal, predictive, or other analytical framing that the user did not request.
 """.strip()
 
 
-def create_planner(model: Model) -> Agent[None, InvestigationPlan]:
-    return Agent(
+def planner_instructions(catalog: CapabilityCatalog = DEFAULT_CATALOG) -> str:
+    return (
+        PLANNER_INSTRUCTIONS
+        + "\n\nApproved source and analytical-capability catalog:\n"
+        + json.dumps(catalog.planning_context(), indent=2)
+    )
+
+
+def create_planner(
+    model: Model, catalog: CapabilityCatalog = DEFAULT_CATALOG
+) -> Agent[None, InvestigationPlan]:
+    agent = Agent(
         model,
         output_type=NativeOutput(
             InvestigationPlan,
@@ -368,10 +379,26 @@ def create_planner(model: Model) -> Agent[None, InvestigationPlan]:
             description="A bounded, testable business investigation plan.",
             strict=True,
         ),
-        instructions=PLANNER_INSTRUCTIONS,
+        instructions=planner_instructions(catalog),
         model_settings={"temperature": 0.0, "max_tokens": 1200},
         retries={"output": 2},
     )
+
+    @agent.output_validator
+    def validate_catalog_scope(
+        _ctx: RunContext[None], output: InvestigationPlan
+    ) -> InvestigationPlan:
+        unavailable = {
+            step.analysis.value for step in output.steps
+        } - catalog.capability_ids
+        if unavailable:
+            raise ModelRetry(
+                "Use only analyses in the approved capability catalog. Remove: "
+                f"{sorted(unavailable)}."
+            )
+        return output
+
+    return agent
 
 
 def create_step_selector(model: Model) -> Agent[DecisionDependencies, AnalysisDecision]:
@@ -1057,6 +1084,7 @@ def run_investigation(
     settings: Settings | None = None,
     data_root: Path | None = None,
     database_path: Path | None = None,
+    capability_catalog: CapabilityCatalog = DEFAULT_CATALOG,
     plan_usage_limits: UsageLimits = PLAN_USAGE_LIMITS,
     step_usage_limits: UsageLimits = STEP_USAGE_LIMITS,
     synthesis_usage_limits: UsageLimits = SYNTHESIS_USAGE_LIMITS,
@@ -1085,7 +1113,7 @@ def run_investigation(
         source: DataSource = repository or root
         if planner is None or selector is None or synthesizer is None:
             model = _openai_compatible_model(settings or Settings.from_environment())
-            planner = planner or create_planner(model)
+            planner = planner or create_planner(model, capability_catalog)
             selector = selector or create_step_selector(model)
             synthesizer = synthesizer or create_synthesizer(model)
 
@@ -1112,6 +1140,14 @@ def run_investigation(
                     }
                 )
             plan, plan_correction = _apply_domain_relevance_guard(question, plan)
+            unavailable = {
+                step.analysis.value for step in plan.steps
+            } - capability_catalog.capability_ids
+            if unavailable:
+                raise InvestigationError(
+                    "The plan selected analyses absent from the approved capability catalog: "
+                    f"{sorted(unavailable)}."
+                )
             planned_order = tuple(dict.fromkeys(step.analysis for step in plan.steps))
 
             while not _evidence_gate_satisfied(plan, {decision.analysis for decision in decisions}):
@@ -1161,6 +1197,7 @@ def run_investigation(
                         arguments=arguments,
                         result=report_content,
                         source=source,
+                        catalog=capability_catalog,
                     )
                 )
                 execution_usage_items.append(_usage_summary(decision_result.usage))
@@ -1242,6 +1279,7 @@ def run_investigation(
     execution_usage = _sum_usage(execution_usage_items, tool_calls=len(actions))
     return InvestigationState(
         original_question=question,
+        capability_catalog=capability_catalog,
         plan=plan,
         classification_correction=classification_correction,
         plan_correction=plan_correction,
@@ -1347,6 +1385,7 @@ def create_audit_bundle(state: InvestigationState) -> AuditBundle:
     investigation_plan = state.plan.model_dump(mode="json")
     identity_payload = {
         "question": state.original_question,
+        "capability_catalog_digest": state.capability_catalog.catalog_digest,
         "investigation_plan": investigation_plan,
         "controller_corrections": controller_corrections,
         "evidence_ids": [record.evidence_id for record in state.evidence_ledger.records],
@@ -1357,6 +1396,7 @@ def create_audit_bundle(state: InvestigationState) -> AuditBundle:
     return AuditBundle(
         investigation_id=investigation_id(identity_payload),
         question=state.original_question,
+        capability_catalog=state.capability_catalog,
         investigation_plan=investigation_plan,
         controller_corrections=tuple(controller_corrections),
         source_snapshots=tuple(unique_sources.values()),

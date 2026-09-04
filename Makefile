@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup data database server ask classify analytics analyze investigate evaluate qualify qualify-analytics qualify-tools qualify-investigation qualify-database qualify-evaluation test lint
+.PHONY: setup data database server ask classify catalog analytics analyze investigate evaluate qualify qualify-analytics qualify-tools qualify-investigation qualify-database qualify-evaluation test lint
 
 setup:
 	/opt/homebrew/bin/python3.13 -m venv .venv
@@ -21,6 +21,9 @@ ask:
 
 classify:
 	$(PYTHON) -m business_ops.classify_cli "$(QUESTION)"
+
+catalog:
+	$(PYTHON) -m business_ops.catalog_cli --planning-view
 
 analytics:
 	$(PYTHON) -m business_ops.analytics_cli account-risk

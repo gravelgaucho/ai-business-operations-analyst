@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from business_ops.catalog import CapabilityCatalog
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.investigation import (
     MANDATORY_CAUSAL_SENTENCE,
@@ -191,6 +192,44 @@ def evaluate_investigation(
 
     used_sequence = [AnalysisKind(action.name) for action in state.actions if action.returned]
     used = set(used_sequence)
+    catalog_integrity = True
+    try:
+        CapabilityCatalog.model_validate(state.capability_catalog.model_dump(mode="python"))
+    except ValueError:
+        catalog_integrity = False
+    record(
+        "capability_catalog_integrity",
+        catalog_integrity,
+        f"validated {state.capability_catalog.catalog_version} and its content digest",
+    )
+
+    catalog_ids = state.capability_catalog.capability_ids
+    planned_ids = {step.analysis.value for step in state.plan.steps}
+    executed_ids = {item.value for item in used}
+    evidence_method_ids = {item.method.tool_name for item in state.evidence_ledger.records}
+    catalog_alignment = planned_ids | executed_ids | evidence_method_ids <= catalog_ids
+    if catalog_alignment:
+        for evidence_record in state.evidence_ledger.records:
+            capability = state.capability_catalog.capability(evidence_record.method.tool_name)
+            source = state.capability_catalog.source(capability.source_ids[0])
+            expected_locators = (
+                capability.json_files
+                if evidence_record.source.access_mode == "authenticated_json"
+                else capability.sqlite_tables
+            )
+            catalog_alignment = catalog_alignment and (
+                evidence_record.method.implementation == capability.implementation
+                and evidence_record.method.method_version == capability.method_version
+                and evidence_record.source.source_id == source.source_id
+                and tuple(item.locator for item in evidence_record.source.locators)
+                == expected_locators
+            )
+    record(
+        "catalog_execution_alignment",
+        catalog_alignment,
+        "plan, execution, source locators, and evidence methods match the approved catalog",
+    )
+
     missing_analyses = set(scenario.required_analyses) - used
     record(
         "required_analyses",
