@@ -4,7 +4,6 @@ version = "0.7.0"
 description = "A local-first, evidence-driven AI business operations analyst."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-license = "MIT"
 dependencies = [
   "httpx>=0.28,<1",
   "mlx>=0.32,<0.33",
