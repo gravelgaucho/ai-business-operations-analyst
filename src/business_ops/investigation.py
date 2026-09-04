@@ -20,6 +20,11 @@ from business_ops.analyst import ToolCallTrace, UsageSummary
 from business_ops.config import Settings
 from business_ops.datasets.download import DatasetImportError, verify_dataset
 from business_ops.datasets.enterprise_bench import EnterpriseBenchDataError, default_data_root
+from business_ops.datasets.repository import BusinessDataRepository, DataSource
+from business_ops.datasets.sqlite_store import (
+    SqliteEnterpriseBenchRepository,
+    SqliteStoreError,
+)
 from business_ops.questions import BusinessQuestion, QuestionType
 from business_ops.reports import (
     AccountRiskQuery,
@@ -378,17 +383,17 @@ def _decision_arguments(decision: AnalysisDecision) -> dict[str, Any]:
     }
 
 
-def _execute_analysis(root: Path, decision: AnalysisDecision) -> Any:
+def _execute_analysis(source: DataSource, decision: AnalysisDecision) -> Any:
     arguments = _decision_arguments(decision)
     try:
         if decision.analysis == AnalysisKind.ACCOUNT_SUPPORT_RISK:
-            return account_risk_report(root, AccountRiskQuery.model_validate(arguments))
+            return account_risk_report(source, AccountRiskQuery.model_validate(arguments))
         if decision.analysis == AnalysisKind.PRODUCT_AREA_SUPPORT_RISK:
-            return product_risk_report(root, ProductRiskQuery.model_validate(arguments))
+            return product_risk_report(source, ProductRiskQuery.model_validate(arguments))
         if decision.analysis == AnalysisKind.CLOSED_WON_PIPELINE:
-            return pipeline_change_report(root, PipelineChangeQuery.model_validate(arguments))
+            return pipeline_change_report(source, PipelineChangeQuery.model_validate(arguments))
         return support_pipeline_link_report(
-            root, SupportPipelineLinkQuery.model_validate(arguments)
+            source, SupportPipelineLinkQuery.model_validate(arguments)
         )
     except ValidationError as exc:
         raise InvestigationError(
@@ -513,6 +518,7 @@ def run_investigation(
     synthesizer: Agent[SynthesisDependencies, InvestigationConclusion] | None = None,
     settings: Settings | None = None,
     data_root: Path | None = None,
+    database_path: Path | None = None,
     plan_usage_limits: UsageLimits = PLAN_USAGE_LIMITS,
     step_usage_limits: UsageLimits = STEP_USAGE_LIMITS,
     synthesis_usage_limits: UsageLimits = SYNTHESIS_USAGE_LIMITS,
@@ -528,6 +534,12 @@ def run_investigation(
     synthesis_deps: SynthesisDependencies | None = None
     try:
         verify_dataset(root)
+        repository: BusinessDataRepository | None = (
+            SqliteEnterpriseBenchRepository(database_path, source_root=root)
+            if database_path is not None
+            else None
+        )
+        source: DataSource = repository or root
         if planner is None or selector is None or synthesizer is None:
             model = _openai_compatible_model(settings or Settings.from_environment())
             planner = planner or create_planner(model)
@@ -567,7 +579,7 @@ def run_investigation(
                     )
                 )
                 decision = decision_result.output
-                report = _execute_analysis(root, decision)
+                report = _execute_analysis(source, decision)
                 decisions.append(decision)
                 actions.append(
                     ToolCallTrace(
@@ -615,6 +627,7 @@ def run_investigation(
         UserError,
         DatasetImportError,
         EnterpriseBenchDataError,
+        SqliteStoreError,
         InvestigationError,
     ) as exc:
         failures = []

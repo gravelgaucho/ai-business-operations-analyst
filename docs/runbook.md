@@ -6,12 +6,17 @@
 make setup
 cp .env.example .env
 make data
+make database
 ```
 
 The environment is stored in `.venv` and ignored by Git. Dependencies are bounded in
 `pyproject.toml`; the exact installed versions are captured in each qualification artifact.
 The downloaded Maple Payments corpus is stored in `data/enterprise_bench`, verified against
 its pinned checksum, and ignored by Git.
+
+`make database` creates the derived SQLite store at
+`data/derived/maple_payments.sqlite3`. It authenticates the source first, builds in a
+temporary file, validates relationships, and only then replaces the derived database.
 
 ## Start and stop
 
@@ -78,6 +83,22 @@ The investigation prints its plan, model-selected decisions, deterministic obser
 stop reason, typed conclusion, and usage as JSON. On the qualified 27B baseline, allow about
 three minutes for this multi-request workflow.
 
+Run the same deterministic and model-backed paths through the Stage 6 read-only SQL adapter:
+
+```bash
+business-ops-analytics \
+  --database data/derived/maple_payments.sqlite3 account-risk
+business-ops-analyze \
+  --database data/derived/maple_payments.sqlite3 \
+  "Which five accounts have the most ARR exposed to open P1 tickets?"
+business-ops-investigate \
+  --database data/derived/maple_payments.sqlite3 \
+  "Did open P1 support issues explain the Q1 2026 closed-won USD ACV decline versus Q4 2025?"
+make qualify-database
+```
+
+The JSON path remains available as a reference implementation when `--database` is omitted.
+
 Inspect both sides of the API boundary:
 
 ```bash
@@ -119,6 +140,8 @@ it answers prompts; it must pass the full tool and structure contract.
   than weakening the gate. The controller will not publish an under-evidenced conclusion.
 - Dataset missing: run `make data`. The importer will not overwrite an existing directory
   whose source marker is absent or does not match the pinned release.
+- Relational store missing or invalid: run `make database`. Use
+  `business-ops-database --force` only to atomically rebuild this derived local artifact.
 - Port busy: set matching `PORT` and `BASE_URL` values in `.env`.
 - Custom binding: use `SERVER_HOST`; zsh reserves `HOST` for the Mac's hostname.
 

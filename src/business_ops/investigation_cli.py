@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("question", help="The business question to investigate.")
     parser.add_argument("--data-root", type=Path, default=default_data_root())
+    parser.add_argument("--database", type=Path, help="Use a verified read-only SQLite store.")
     parser.add_argument("--model", help="Override MODEL_ID for this investigation.")
     parser.add_argument("--base-url", help="Override BASE_URL for this investigation.")
     return parser
@@ -35,6 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.question,
             settings=settings,
             data_root=args.data_root,
+            database_path=args.database,
         )
     except (InvestigationError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

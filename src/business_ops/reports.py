@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from enum import StrEnum
-from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,13 +16,8 @@ from business_ops.analytics import (
     segment_performance,
 )
 from business_ops.datasets.download import ENTERPRISE_BENCH
-from business_ops.datasets.enterprise_bench import (
-    AccountRisk,
-    ProductAreaRisk,
-    opportunity_metric_records,
-    rank_account_risk,
-    rank_product_area_risk,
-)
+from business_ops.datasets.enterprise_bench import AccountRisk, ProductAreaRisk
+from business_ops.datasets.repository import DataSource, as_repository
 
 
 class ReportModel(BaseModel):
@@ -150,9 +144,10 @@ def source_metadata() -> SourceMetadata:
     )
 
 
-def account_risk_report(root: Path, query: AccountRiskQuery) -> AccountRiskReport:
+def account_risk_report(source: DataSource, query: AccountRiskQuery) -> AccountRiskReport:
+    repository = as_repository(source)
     priorities = frozenset(priority.value for priority in query.priorities)
-    all_results = rank_account_risk(root, priorities=priorities, top_n=10_000)
+    all_results = repository.rank_account_risk(priorities=priorities, top_n=10_000)
     priority_label = "/".join(sorted(priority.upper() for priority in priorities))
     return AccountRiskReport(
         question=(
@@ -172,9 +167,10 @@ def account_risk_report(root: Path, query: AccountRiskQuery) -> AccountRiskRepor
     )
 
 
-def product_risk_report(root: Path, query: ProductRiskQuery) -> ProductRiskReport:
+def product_risk_report(source: DataSource, query: ProductRiskQuery) -> ProductRiskReport:
+    repository = as_repository(source)
     priorities = frozenset(priority.value for priority in query.priorities)
-    results = rank_product_area_risk(root, priorities=priorities, top_n=query.top_n)
+    results = repository.rank_product_area_risk(priorities=priorities, top_n=query.top_n)
     priority_label = "/".join(sorted(priority.upper() for priority in priorities))
     return ProductRiskReport(
         question=(
@@ -190,10 +186,13 @@ def product_risk_report(root: Path, query: ProductRiskQuery) -> ProductRiskRepor
     )
 
 
-def pipeline_change_report(root: Path, query: PipelineChangeQuery) -> PipelineChangeReport:
+def pipeline_change_report(source: DataSource, query: PipelineChangeQuery) -> PipelineChangeReport:
+    repository = as_repository(source)
     current = DateRange(start=query.current_start, end=query.current_end)
     previous = DateRange(start=query.previous_start, end=query.previous_end)
-    records = opportunity_metric_records(root, stage="closed_won", currency=query.currency.value)
+    records = repository.opportunity_metric_records(
+        stage="closed_won", currency=query.currency.value
+    )
     comparison = compare_periods(records, current, previous)
     declines = [item for item in comparison.contributors if item.variance.absolute_change < 0][
         : query.top_n
@@ -218,13 +217,16 @@ def pipeline_change_report(root: Path, query: PipelineChangeQuery) -> PipelineCh
 
 
 def support_pipeline_link_report(
-    root: Path, query: SupportPipelineLinkQuery
+    source: DataSource, query: SupportPipelineLinkQuery
 ) -> SupportPipelineLinkReport:
     """Measure set overlap without asking the model to perform a cross-system join."""
 
+    repository = as_repository(source)
     current = DateRange(start=query.current_start, end=query.current_end)
     previous = DateRange(start=query.previous_start, end=query.previous_end)
-    records = opportunity_metric_records(root, stage="closed_won", currency=query.currency.value)
+    records = repository.opportunity_metric_records(
+        stage="closed_won", currency=query.currency.value
+    )
     comparison = compare_periods(records, current, previous)
     top_declines = [
         item for item in comparison.contributors if item.variance.absolute_change < 0
@@ -232,7 +234,7 @@ def support_pipeline_link_report(
     priorities = frozenset(priority.value for priority in query.priorities)
     at_risk = {
         item.account_id: item
-        for item in rank_account_risk(root, priorities=priorities, top_n=10_000)
+        for item in repository.rank_account_risk(priorities=priorities, top_n=10_000)
     }
     overlaps = [
         SupportPipelineAccount(

@@ -27,6 +27,11 @@ from business_ops.datasets.enterprise_bench import (
     EnterpriseBenchDataError,
     default_data_root,
 )
+from business_ops.datasets.repository import BusinessDataRepository
+from business_ops.datasets.sqlite_store import (
+    SqliteEnterpriseBenchRepository,
+    SqliteStoreError,
+)
 from business_ops.reports import (
     AccountRiskQuery,
     AccountRiskReport,
@@ -64,6 +69,11 @@ DEFAULT_USAGE_LIMITS = UsageLimits(request_limit=5, tool_calls_limit=4)
 @dataclass(frozen=True)
 class AnalystDependencies:
     data_root: Path
+    repository: BusinessDataRepository | None = None
+
+    @property
+    def data_source(self) -> Path | BusinessDataRepository:
+        return self.repository or self.data_root
 
 
 class AnalystModel(BaseModel):
@@ -105,7 +115,7 @@ def get_account_support_risk(
         query: Bounded ranking size and support-ticket priorities to include.
     """
 
-    return account_risk_report(ctx.deps.data_root, query)
+    return account_risk_report(ctx.deps.data_source, query)
 
 
 def get_product_area_support_risk(
@@ -118,7 +128,7 @@ def get_product_area_support_risk(
         query: Bounded ranking size and support-ticket priorities to include.
     """
 
-    return product_risk_report(ctx.deps.data_root, query)
+    return product_risk_report(ctx.deps.data_source, query)
 
 
 def compare_closed_won_pipeline(
@@ -131,7 +141,7 @@ def compare_closed_won_pipeline(
         query: Current and previous periods, currency, and bounded contributor count.
     """
 
-    return pipeline_change_report(ctx.deps.data_root, query)
+    return pipeline_change_report(ctx.deps.data_source, query)
 
 
 def test_support_pipeline_overlap(
@@ -144,7 +154,7 @@ def test_support_pipeline_overlap(
         query: Periods, priorities, currency, and bounded decline population to compare.
     """
 
-    return support_pipeline_link_report(ctx.deps.data_root, query)
+    return support_pipeline_link_report(ctx.deps.data_source, query)
 
 
 ANALYTICS_TOOLS = (
@@ -206,6 +216,7 @@ def run_analysis(
     agent: Agent[AnalystDependencies, str] | None = None,
     settings: Settings | None = None,
     data_root: Path | None = None,
+    database_path: Path | None = None,
     usage_limits: UsageLimits = DEFAULT_USAGE_LIMITS,
 ) -> AnalysisRun:
     """Run one bounded, tool-backed analysis against the verified synthetic dataset."""
@@ -217,16 +228,27 @@ def run_analysis(
     root = (data_root or default_data_root()).resolve()
     try:
         verify_dataset(root)
+        repository = (
+            SqliteEnterpriseBenchRepository(database_path, source_root=root)
+            if database_path is not None
+            else None
+        )
         analyst = agent or build_analytics_agent(settings)
         with asyncio.Runner() as runner:
             result = runner.run(
                 analyst.run(
                     question,
-                    deps=AnalystDependencies(data_root=root),
+                    deps=AnalystDependencies(data_root=root, repository=repository),
                     usage_limits=usage_limits,
                 )
             )
-    except (AgentRunError, UserError, DatasetImportError, EnterpriseBenchDataError) as exc:
+    except (
+        AgentRunError,
+        UserError,
+        DatasetImportError,
+        EnterpriseBenchDataError,
+        SqliteStoreError,
+    ) as exc:
         raise AnalyticsAgentError(f"Tool-backed analysis failed: {exc}") from exc
 
     trace = extract_tool_trace(result.all_messages())

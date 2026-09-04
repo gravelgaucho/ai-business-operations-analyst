@@ -1,4 +1,4 @@
-# Architecture through Stage 5
+# Architecture through Stage 6
 
 ## Decision
 
@@ -20,9 +20,13 @@ configuration.
                  |                                   |
         local model server                analytics functions
                  |                                   |
-     Qwen3.8 weights (replaceable)        Maple Payments adapter
+     Qwen3.8 weights (replaceable)      data repository protocol
                                                      |
-                                             verified local JSON data
+                                      +--------------+--------------+
+                                      |                             |
+                                 JSON reference               SQLite read-only
+                                      |                             |
+                                      +------ verified source ------+
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
@@ -62,6 +66,13 @@ analysis while making progress, stopping, and audit state deterministic. A separ
 gate rejects citations to unexecuted analyses, unsupported statistical claims, and decisive
 causal conclusions when timing and history evidence is absent.
 
+Stage 6 inserts a model-neutral repository protocol beneath the reports. The original JSON
+adapter remains the reference implementation. A separate builder authenticates the pinned
+source, imports five normalized SQLite tables atomically, enforces foreign keys and checks,
+and records source provenance inside the database. Runtime SQL connections use read-only and
+query-only modes. Reports and agent tools receive the repository interface rather than SQL,
+so storage can change without changing prompts, schemas, or investigation control.
+
 ## Why this baseline
 
 `Qwen3.8-27B` is the current dense 27B model in the requested Qwen3.8 class. The MLX
@@ -86,6 +97,8 @@ long-lived memory, delegation, self-modifying plan, or open-ended autonomy.
 
 The Maple Payments corpus is downloaded locally and ignored by Git. Its importer pins the
 official upstream commit and archive checksum and rejects unapproved archive contents.
+The derived SQLite database is also ignored by Git and can be rebuilt from that authenticated
+snapshot. It is not a new source of truth.
 
 The `lookup_account_metrics` function used in qualification is a deterministic fixture.
 It proves protocol behavior; it is not a data integration.
@@ -96,3 +109,7 @@ A model qualifies only when all five automated checks pass in one run: server di
 basic inference, schema-constrained JSON, native tool-call emission, and continuation
 after a tool result. The run must also record per-check latency, token usage when exposed,
 package versions, and sampled peak server RSS.
+
+The relational layer qualifies separately: source provenance and row counts must match,
+every report must equal the JSON reference, runtime writes must fail, and the period query
+must use its composite index.

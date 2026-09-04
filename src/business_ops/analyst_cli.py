@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("question", help="The business question to investigate.")
     parser.add_argument("--data-root", type=Path, default=default_data_root())
+    parser.add_argument("--database", type=Path, help="Use a verified read-only SQLite store.")
     parser.add_argument("--model", help="Override MODEL_ID for this request.")
     parser.add_argument("--base-url", help="Override BASE_URL for this request.")
     return parser
@@ -31,7 +32,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         timeout_seconds=defaults.timeout_seconds,
     )
     try:
-        result = run_analysis(args.question, settings=settings, data_root=args.data_root)
+        result = run_analysis(
+            args.question,
+            settings=settings,
+            data_root=args.data_root,
+            database_path=args.database,
+        )
     except (AnalyticsAgentError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

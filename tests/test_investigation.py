@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from pydantic_ai import ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from business_ops.datasets.sqlite_store import build_database
 from business_ops.investigation import (
     InvestigationError,
     InvestigationPlan,
@@ -176,6 +177,11 @@ def dataset(tmp_path: Path) -> Path:
                 "target_close_date": "2026-01-15",
             },
         ],
+    )
+    write_records(
+        tmp_path,
+        "pm_json_data/maple_parts.json",
+        [{"part_id": "P1", "title": "Checkout"}],
     )
     return tmp_path
 
@@ -354,3 +360,28 @@ def test_dataset_is_verified_before_planning(
             synthesizer=create_synthesizer(never_model),
             data_root=dataset,
         )
+
+
+def test_controller_can_execute_the_same_plan_through_sqlite(
+    dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    monkeypatch.setattr(
+        "business_ops.datasets.sqlite_store.verify_dataset", lambda root, spec: root
+    )
+    (dataset / ".source.json").write_text("{}", encoding="utf-8")
+    database = tmp_path / "derived" / "maple.sqlite3"
+    build_database(dataset, database, verify_source=False)
+
+    state = run_investigation(
+        QUESTION,
+        planner=create_planner(json_agent(PLAN)),
+        selector=selector_agent([PIPELINE_DECISION, OVERLAP_DECISION]),
+        synthesizer=create_synthesizer(json_agent(CONCLUSION)),
+        data_root=dataset,
+        database_path=database,
+    )
+
+    assert state.actions[0].returned is True
+    assert state.observations[0].content["comparison"]["absolute_change"] == -700
+    assert state.observations[1].content["overlapping_accounts"] == 1

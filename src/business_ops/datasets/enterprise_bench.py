@@ -25,6 +25,7 @@ class Account(_SourceRecord):
 
 
 class Opportunity(_SourceRecord):
+    opportunity_id: str | None = None
     account_id: str
     stage: str
     currency: str
@@ -74,7 +75,7 @@ def default_data_root() -> Path:
     return Path(__file__).resolve().parents[3] / "data" / "enterprise_bench"
 
 
-def _load[RecordT: BaseModel](
+def load_records[RecordT: BaseModel](
     root: Path, relative_path: str, record_type: type[RecordT]
 ) -> list[RecordT]:
     path = root / relative_path
@@ -89,7 +90,7 @@ def _load[RecordT: BaseModel](
 
 
 def _accounts(root: Path) -> dict[str, Account]:
-    records = _load(root, "crm_json_data/accounts.json", Account)
+    records = load_records(root, "crm_json_data/accounts.json", Account)
     return {record.account_id: record for record in records}
 
 
@@ -100,7 +101,7 @@ def opportunity_metric_records(
     currency: str = "USD",
 ) -> list[MetricRecord]:
     accounts = _accounts(root)
-    opportunities = _load(root, "crm_json_data/opportunities.json", Opportunity)
+    opportunities = load_records(root, "crm_json_data/opportunities.json", Opportunity)
     records: list[MetricRecord] = []
     for opportunity in opportunities:
         if opportunity.stage != stage or opportunity.currency != currency:
@@ -138,7 +139,7 @@ def rank_account_risk(
     if top_n < 1:
         raise ValueError("top_n must be positive")
     accounts = _accounts(root)
-    tickets = _load(root, "crm_json_data/tickets.json", Ticket)
+    tickets = load_records(root, "crm_json_data/tickets.json", Ticket)
     counts: dict[str, int] = {}
     for ticket in tickets:
         if ticket.priority in priorities and ticket.status in open_statuses:
@@ -174,10 +175,10 @@ def rank_product_area_risk(
     if top_n < 1:
         raise ValueError("top_n must be positive")
     accounts = _accounts(root)
-    tickets = _load(root, "crm_json_data/tickets.json", Ticket)
+    tickets = load_records(root, "crm_json_data/tickets.json", Ticket)
     parts = {
         record.part_id: record
-        for record in _load(root, "pm_json_data/maple_parts.json", ProductPart)
+        for record in load_records(root, "pm_json_data/maple_parts.json", ProductPart)
     }
     account_ids: dict[str, set[str]] = {}
     ticket_counts: dict[str, int] = {}

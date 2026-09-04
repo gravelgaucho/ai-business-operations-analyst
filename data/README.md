@@ -10,6 +10,16 @@ verified archive with:
 make data
 ```
 
+Stage 6 derives a normalized local SQLite store with:
+
+```bash
+make database
+```
+
+The database lives in `data/derived/`, is ignored by Git, records its source commit and
+archive digest, and is opened read-only by the analytics runtime. It can always be rebuilt
+from the authenticated JSON snapshot.
+
 The importer pins the upstream commit and SHA-256 digest, limits archive size, rejects
 unexpected file types, path traversal, and symbolic links, and records the verified source
 beside the extracted files.

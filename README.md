@@ -14,8 +14,9 @@ oversight.
 | Stage 3 — deterministic analytics | Complete | Tagged `v0.4-analytics-engine` |
 | Stage 4 — bounded tool calling | Complete | Tagged `v0.5-tool-calling` |
 | Stage 5 — controlled investigation agent | Complete | Tagged `v0.6-investigation-agent` |
+| Stage 6 — verified relational data layer | Complete | Tagged `v0.7-sql-data-layer` |
 
-This repository contains six foundations:
+This repository contains seven foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -31,6 +32,9 @@ This repository contains six foundations:
 - **Stage 5 — Controlled Investigation Agent:** classify a question, build a bounded plan,
   select multiple analyses adaptively, preserve every observation, enforce evidence and
   causal-restraint gates, and produce a typed decision-ready conclusion.
+- **Stage 6 — Verified Relational Data Layer:** atomically normalize the authenticated JSON
+  snapshot into SQLite, preserve source provenance, enforce relationships and indexes, and
+  expose the same typed reports through a read-only repository boundary.
 
 ## What Stage 0 proves
 
@@ -66,6 +70,11 @@ overlap test; all 9 controller checks passed. The result correctly remained caus
 inconclusive because ticket timing and opportunity history are absent. See
 [docs/stage-5-investigation-agent.md](docs/stage-5-investigation-agent.md).
 
+Stage 6 imported 42 accounts, 8,704 opportunities, 32,768 tickets, 40 product parts, and
+32,768 ticket-component links into a 6.9 MiB SQLite database. All four reports matched the
+JSON reference exactly; source, row-count, read-only, and index checks all passed. See
+[docs/stage-6-sql-data-layer.md](docs/stage-6-sql-data-layer.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -75,6 +84,7 @@ space for packages plus the model cache.
 make setup
 cp .env.example .env
 make data
+make database
 make server
 ```
 
@@ -86,6 +96,7 @@ business-ops-classify "Why did Northeast revenue decline last quarter?"
 business-ops-analytics account-risk
 business-ops-analytics product-risk --top 5
 business-ops-analytics pipeline-change --top 5
+business-ops-analytics --database data/derived/maple_payments.sqlite3 account-risk
 business-ops-analyze "Which accounts have the most ARR exposed to open P1 tickets?"
 business-ops-investigate \
   "Did open P1 issues explain the Q1 2026 closed-won ACV decline versus Q4 2025?"
@@ -111,7 +122,7 @@ src/business_ops/analytics/    Model-free calculations and result types
 src/business_ops/reports.py    Typed, reusable business-analysis reports
 src/business_ops/analyst.py    Bounded tool catalog and model continuation loop
 src/business_ops/investigation.py Typed plan, controlled evidence loop, and conclusion gates
-src/business_ops/datasets/     Verified import and Maple Payments adapter
+src/business_ops/datasets/     Verified JSON import, repository boundary, and SQLite adapter
 tests/                      Fast tests that do not load the model
 docs/architecture.md        Design boundary and deliberate non-goals
 docs/data-safety.md          Public test-data acceptance policy
@@ -121,12 +132,13 @@ docs/stage-2-typed-questions.md Typed-output design and verified example
 docs/stage-3-analytics-engine.md Deterministic analysis and verified findings
 docs/stage-4-tool-calling.md  Tool contracts, controls, and interpretation boundaries
 docs/stage-5-investigation-agent.md Multi-step controller and verified investigation
+docs/stage-6-sql-data-layer.md Relational schema, parity proof, and measured results
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 5 exposes only four read-only reports over DevRev's synthetic, Apache-2.0 licensed
+Stage 6 exposes only four read-only reports over DevRev's synthetic, Apache-2.0 licensed
 Maple Payments data. Its investigation loop is capped at four distinct analyses. It does
 **not** add MCP, RAG, private business data, write actions, arbitrary queries, long-lived
 memory, or a user interface.
