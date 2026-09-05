@@ -41,3 +41,15 @@ Stage 3. We import only the data archive.
 Sources: [official repository](https://github.com/devrev/enterprise-bench),
 [data schema](https://github.com/devrev/enterprise-bench/blob/main/docs/data-schema.md), and
 [Apache-2.0 license](https://github.com/devrev/enterprise-bench/blob/main/LICENSE).
+
+## Planned synthetic extension
+
+Stage 12 specifies a future Maple finance and operations extension but creates no records. The
+planned contract assignments, bookings, subscriptions, invoices, revenue schedules, payments,
+implementation milestones, usage observations, and cost records are not approved sources and are
+not visible to the model.
+
+Before any extension is accepted, it must contain only synthetic identifiers, be reproducible
+from a reviewed deterministic generator, declare its permitted use, carry a version and content
+digest, pass referential and accounting-semantic validation, and remain clearly distinguishable
+from the upstream Apache-2.0 snapshot. Evaluation ground truth must remain outside model context.

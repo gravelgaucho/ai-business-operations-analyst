@@ -63,6 +63,21 @@ The compact planning view shows what the analyst may use. The full view also inc
 definitions, metric semantics, source locators, implementation identities, and interpretation
 boundaries. Its SHA-256 digest changes if any governed definition changes.
 
+Inspect the Stage 12 business-data coverage contract without starting the model server:
+
+```bash
+make testbed
+business-ops-testbed --spec-only
+make qualify-testbed
+```
+
+The inventory verifies the pinned Maple snapshot before counting records. It distinguishes
+current executable assets from source material that exists but has not been onboarded and from
+finance/operations assets that do not exist yet. Planned assets are never added to the model's
+capability catalog. Scenario readiness is derived from the required metric states, so an
+unsupported financial question is reported as blocked rather than silently approximated with
+opportunity ACV.
+
 Run a Stage 10 governed breakdown without starting the model server:
 
 ```bash

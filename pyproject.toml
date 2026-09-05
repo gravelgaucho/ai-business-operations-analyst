@@ -1,6 +1,6 @@
 [project]
 name = "ai-business-operations-analyst"
-version = "0.12.0"
+version = "0.13.0"
 description = "A local-first, evidence-grounded AI business analyst."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -24,6 +24,7 @@ business-ops-database = "business_ops.database_cli:main"
 business-ops-investigate = "business_ops.investigation_cli:main"
 business-ops-documents = "business_ops.document_cli:main"
 business-ops-query = "business_ops.query_cli:main"
+business-ops-testbed = "business_ops.testbed_cli:main"
 
 [project.optional-dependencies]
 dev = [

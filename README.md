@@ -21,8 +21,9 @@ important claims can be audited back to internal evidence.
 | Stage 9 — source and capability catalog | Complete | Tagged `v0.10-source-capability-catalog` |
 | Stage 10 — governed structured query | Complete | Tagged `v0.11-governed-structured-query` |
 | Stage 11 — cited document retrieval | Complete | Tagged `v0.12-cited-document-retrieval` |
+| Stage 12 — business evidence testbed | Complete | Tagged `v0.13-business-evidence-testbed` |
 
-This repository contains twelve foundations:
+This repository contains thirteen foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -56,6 +57,9 @@ This repository contains twelve foundations:
 - **Stage 11 — Cited Document Retrieval:** search only published, manifest-approved internal
   documents; return bounded passages with document identity, exact lines, and content hashes;
   and combine those citations with structured evidence in one controlled investigation.
+- **Stage 12 — Business Evidence Testbed:** inventory the complete authenticated Maple source,
+  distinguish executable, available, and absent data, define a canonical cross-system entity
+  spine, and make future financial-scenario readiness a versioned, machine-checked contract.
 
 ## What Stage 0 proves
 
@@ -132,6 +136,18 @@ tests also cover claim-to-citation number scope, hidden synthesis arithmetic, do
 leakage, template applicability, and calibrated confidence. See
 [docs/stage-11-cited-document-retrieval.md](docs/stage-11-cited-document-retrieval.md).
 
+Stage 12 verifies 50,411 records across 12 existing Maple assets and all 11 declared cross-source
+integrity checks. Five assets already support approved capabilities, seven are present but
+deliberately not onboarded, and nine finance and
+operations assets are explicitly planned and absent. Two current scenarios remain qualified, a
+product-issue scenario is partial, and the bookings-versus-revenue and transaction-review cases
+are machine-blocked until their required data exists. The testbed defines 19 canonical entities,
+14 metric requirements, 16 relationships, and five flagship scenarios without granting the model
+new source authority. See
+[docs/stage-12-business-evidence-testbed.md](docs/stage-12-business-evidence-testbed.md).
+All nine deterministic qualification checks and all 114 fast repository tests pass without
+loading the model.
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -151,6 +167,7 @@ In a second terminal:
 business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
 business-ops-classify "Why did Northeast revenue decline last quarter?"
 business-ops-catalog --planning-view
+business-ops-testbed
 business-ops-documents "Standard MSA P1 initial response resolution"
 business-ops-query --start 2026-01-01 --end 2026-03-31 --dimension region
 business-ops-analytics account-risk
@@ -164,6 +181,7 @@ business-ops-investigate \
   "Did open P1 issues explain the Q1 2026 closed-won ACV decline versus Q4 2025?" \
   --audit-output artifacts/example-audit.json
 make qualify-evaluation
+make qualify-testbed
 business-ops "Analyze the same question" --show-request --raw
 make qualify
 ```
@@ -178,9 +196,12 @@ snapshot for this milestone is summarized in [docs/qualification.md](docs/qualif
 ```text
 scripts/start_server.sh     Local-only model server launcher
 scripts/qualify.py          End-to-end API and performance qualification
+scripts/qualify_testbed.py  Verified business-data coverage acceptance checks
 src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
 src/business_ops/catalog.py Approved source, entity, metric, and analytical-capability catalog
 src/business_ops/catalog_cli.py Human- and machine-readable catalog inspection
+src/business_ops/testbed.py Versioned business-data coverage and canonical-entity contract
+src/business_ops/testbed_cli.py Verified source inventory and scenario-readiness inspection
 src/business_ops/document_cli.py Bounded published-document search with exact citations
 src/business_ops/query_cli.py Governed semantic-query inspection
 src/business_ops/cli.py     Inspectable business-question command line
@@ -208,12 +229,13 @@ docs/stage-8-evidence-provenance.md Claim-level citations and audit-bundle walkt
 docs/stage-9-source-capability-catalog.md Governed discovery and semantic-boundary walkthrough
 docs/stage-10-governed-structured-query.md Typed query contract and SQL safety boundary
 docs/stage-11-cited-document-retrieval.md Governed ingestion, retrieval, and citation boundary
+docs/stage-12-business-evidence-testbed.md Unified data coverage and extension specification
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 11 exposes six read-only analytical capabilities over DevRev's synthetic, Apache-2.0
+Stage 12 retains six read-only analytical capabilities over DevRev's synthetic, Apache-2.0
 licensed Maple Payments data. Its investigation loop is capped at four distinct analyses.
 The catalog and evidence contracts are general, but the current source adapter and analyses
 are not. Cataloging an entity or modality does not make it queryable; execution requires an
@@ -222,7 +244,8 @@ The semantic query is not arbitrary SQL: it exposes one approved metric, four ap
 dimensions, two currencies, explicit dates, and a maximum of 50 rows. It does **not** add MCP,
 embeddings, a vector database, broad filesystem access, RAG over arbitrary sources, private
 business data, write actions, arbitrary SQL,
-long-lived memory, or a user interface.
+long-lived memory, or a user interface. The testbed registers available and planned data for
+coverage analysis only; neither state makes that data visible to the model or executable.
 
 ## Safety note
 

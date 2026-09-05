@@ -1,4 +1,4 @@
-# Architecture through Stage 11
+# Architecture through Stage 12
 
 ## Decision
 
@@ -28,14 +28,16 @@ configuration.
                                       |                             |
                                       +------ verified source ------+
                                                     |
-                                                    v
-                                       source + semantic catalog
-                                                    |
-                                                    v
-                                      content-addressed evidence ledger
-                                                    |
-                                                    v
-                                      typed claims + portable audit bundle
+                                      +-------------+-------------+
+                                      |                           |
+                                      v                           v
+                         source + semantic catalog      business evidence testbed
+                                      |                  (coverage contract only)
+                                      v
+                         content-addressed evidence ledger
+                                      |
+                                      v
+                         typed claims + portable audit bundle
 ```
 
 Qwen3.8 is a vision-language model, so MLX-VLM supplies the correct loader and server.
@@ -165,13 +167,36 @@ capability, but the controller uses the original business question as the exact 
 the action trace, result, and evidence method must agree. A claim cites the immutable evidence
 record, which in turn contains the independently checkable line-level document citations.
 
+Stage 12 adds a separate business evidence testbed contract alongside the executable capability
+catalog. It inventories the full authenticated Maple snapshot and classifies every source asset,
+entity, relationship, metric requirement, and flagship scenario as active, available but not
+onboarded, or planned. The testbed is content-addressed and self-validating, and its inventory
+reauthenticates the pinned dataset before counting records.
+
+This contract is deliberately not a planning catalog. Only `CapabilityCatalog` definitions grant
+execution authority. A testbed item can describe a future booking or revenue source without
+allowing the model to query it, cite it, or infer that it exists. Qualification verifies that all
+active primary locators already belong to cataloged capabilities and every planned finance locator
+remains outside them.
+
+The testbed supplies the canonical business entity spine needed for a multi-system analyst while
+preserving source-specific records. It defines the planned chain from account and opportunity
+through executed contract, booking, subscription, invoice, revenue event, and payment. Semantic
+boundaries keep opportunity ACV, bookings, billings, recognized revenue, and cash distinct.
+
+Scenario readiness is derived from the coverage status of required metrics. The existing
+support/pipeline and cited-document scenarios qualify; product-issue/customer-impact analysis is
+partial; and bookings-versus-revenue plus transaction review remain blocked until their synthetic
+finance evidence is implemented and approved.
+
 ## Revised product boundary
 
 The product direction is now a general local AI business analyst, not a Maple-specific support
 and pipeline workflow. The completed stages form its initial execution and governance core.
-The next architectural layers can expand governed onboarding to knowledge-base articles and
-transcripts, test whether lexical retrieval leaves measurable recall gaps, and add embeddings
-only if the evaluation evidence justifies them. Cross-source reconciliation remains separate.
+The next architectural layers can first onboard existing product issues, knowledge-base articles,
+and transcripts, then add the minimum safe synthetic commercial chain needed for bookings and
+recognized-revenue analysis. Retrieval recall, embeddings, and cross-source reconciliation remain
+separate evaluated decisions.
 RAG, when introduced, will remain one capability; it will not replace the controller,
 deterministic analytics, or evidence ledger. Maple Payments remains the first evaluation domain,
 and transaction/contract/pricing review remains a future benchmark domain and possible vertical
@@ -203,6 +228,7 @@ the same external qualification contract before replacement.
 - No production serving claims
 - No vision qualification yet
 - No proprietary scenario library or product-specific scoring logic
+- No generated finance or operations extension records yet
 
 The application owns the bounded investigation loop. There is typed planning state, but no
 long-lived memory, delegation, self-modifying plan, or open-ended autonomy.
@@ -243,3 +269,11 @@ deterministic conclusion corrections remove unsupported claim content or documen
 leakage and record the exact rule without modifying evidence. Template-based confidence is
 calibrated to the missing account-to-agreement mapping. The accepted September 4, 2026 run passed
 all four scenarios at 26/26 gates in 565.117 seconds using the local 27B baseline.
+
+Stage 12 qualifies independently without loading the model. The inventory must authenticate the
+source; match the 12 pinned asset counts; partition 21 assets into five active, seven available,
+and nine planned assets; resolve all 11 declared cross-source integrity checks; prove active
+locators are registered; prove planned locators are not executable; and derive the expected
+readiness for all five flagship scenarios. The accepted run passed all nine checks and counted
+50,411 records. Its testbed digest is
+`sha256:ad96e291eaf9d428e4017dda36f5bd73f2d02dad204072c17d6a3ff2adb9c4d8`.

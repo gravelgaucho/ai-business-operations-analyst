@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup data database server ask classify catalog documents query analytics analyze investigate evaluate qualify qualify-analytics qualify-tools qualify-investigation qualify-database qualify-evaluation test lint
+.PHONY: setup data database server ask classify catalog testbed documents query analytics analyze investigate evaluate qualify qualify-analytics qualify-tools qualify-investigation qualify-database qualify-evaluation qualify-testbed test lint
 
 setup:
 	/opt/homebrew/bin/python3.13 -m venv .venv
@@ -24,6 +24,9 @@ classify:
 
 catalog:
 	$(PYTHON) -m business_ops.catalog_cli --planning-view
+
+testbed:
+	$(PYTHON) -m business_ops.testbed_cli
 
 documents:
 	$(PYTHON) -m business_ops.document_cli "Standard MSA P1 initial response resolution"
@@ -60,6 +63,9 @@ qualify-database:
 
 qualify-evaluation:
 	$(PYTHON) scripts/qualify_evaluation.py
+
+qualify-testbed:
+	$(PYTHON) scripts/qualify_testbed.py
 
 test:
 	$(PYTHON) -m pytest

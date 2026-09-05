@@ -24,4 +24,15 @@ The importer pins the upstream commit and SHA-256 digest, limits archive size, r
 unexpected file types, path traversal, and symbolic links, and records the verified source
 beside the extracted files.
 
+Inspect which verified Maple assets are currently executable, available but not onboarded, or
+missing and planned:
+
+```bash
+make testbed
+make qualify-testbed
+```
+
+Stage 12 does not create the planned `maple_finance_extension/` files. Their locators are a
+versioned coverage contract only and cannot be used by the investigation agent.
+
 Do not place real customer or confidential business data in this directory.
