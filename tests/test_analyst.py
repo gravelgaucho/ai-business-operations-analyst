@@ -93,10 +93,11 @@ def test_agent_exposes_only_bounded_read_only_analytics_tools(
     assert observed["names"] == [
         "get_account_support_risk",
         "get_product_area_support_risk",
-            "compare_closed_won_pipeline",
-            "test_support_pipeline_overlap",
-            "query_closed_won_opportunity_acv",
-        ]
+        "compare_closed_won_pipeline",
+        "test_support_pipeline_overlap",
+        "query_closed_won_opportunity_acv",
+        "search_internal_documents",
+    ]
     schema = observed["schema"]
     assert isinstance(schema, dict)
     assert schema["additionalProperties"] is False

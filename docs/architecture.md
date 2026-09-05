@@ -1,4 +1,4 @@
-# Architecture through Stage 10
+# Architecture through Stage 11
 
 ## Decision
 
@@ -18,7 +18,7 @@ configuration.
                  |                                   |
         OpenAI-compatible API       governed capability execution
                  |                                   |
-        local model server        deterministic reports + semantic query
+        local model server      reports + semantic query + cited retrieval
                  |                                   |
      Qwen3.8 weights (replaceable)      data repository protocol
                                                      |
@@ -147,16 +147,35 @@ that broader business questions do not require either a fixed report for every p
 unrestricted model-generated SQL. Adding another metric or dimension remains a reviewed code,
 catalog, test, and evaluation change.
 
+Stage 11 adds a second deterministic evidence path for unstructured files. It does not crawl the
+dataset directory. A typed manifest identifies approved internal documents; ingestion accepts
+only published, internal, Markdown entries with a single local filename. Paths are resolved
+inside the governed directory, symbolic links and oversized files are rejected, and duplicate
+document IDs or filenames invalidate the corpus. Draft and unlisted files are never searchable.
+
+Markdown is split at heading boundaries into bounded passages while retaining source line
+numbers. HTML comments are removed with line preservation, which excludes benchmark canaries
+from model context without changing citation coordinates. Deterministic BM25 lexical ranking
+returns at most eight passages. Every passage contains document ID, title, publication status,
+modified time, logical locator, section, line range, excerpt hash, relevance score, and text.
+
+Retrieved text is always labeled untrusted evidence. It is never executed, interpreted as an
+agent instruction, or allowed to expand tool authority. The model may choose the retrieval
+capability, but the controller uses the original business question as the exact search request;
+the action trace, result, and evidence method must agree. A claim cites the immutable evidence
+record, which in turn contains the independently checkable line-level document citations.
+
 ## Revised product boundary
 
 The product direction is now a general local AI business analyst, not a Maple-specific support
 and pipeline workflow. The completed stages form its initial execution and governance core.
-The next architectural layers will build on the completed source catalog and governed query
-boundary with controlled document onboarding, retrieval, and cross-source reconciliation. RAG
-will be one capability for unstructured evidence; it will not replace the controller,
-deterministic analytics, or evidence ledger. Maple Payments remains the first evaluation
-domain, and transaction/contract/pricing review remains a future benchmark domain and possible
-vertical package.
+The next architectural layers can expand governed onboarding to knowledge-base articles and
+transcripts, test whether lexical retrieval leaves measurable recall gaps, and add embeddings
+only if the evaluation evidence justifies them. Cross-source reconciliation remains separate.
+RAG, when introduced, will remain one capability; it will not replace the controller,
+deterministic analytics, or evidence ledger. Maple Payments remains the first evaluation domain,
+and transaction/contract/pricing review remains a future benchmark domain and possible vertical
+package.
 
 Two deterministic input guards sit inside the controller. Explicit causal, predictive,
 prescriptive, or comparative wording takes precedence over a contradictory model label, and
@@ -178,7 +197,7 @@ the same external qualification contract before replacement.
 ## Deliberate non-goals
 
 - No MCP protocol or external tools
-- No retrieval, embeddings, vector store, or RAG
+- No embeddings, vector store, or open-ended RAG
 - No private or proprietary business dataset
 - No UI
 - No production serving claims
@@ -213,3 +232,14 @@ safety, catalog alignment, governed-query contract and result-bound checks, and 
 gates. The new comparative scenario requires both the fixed period-comparison report and the
 governed regional breakdown. The September 4, 2026 milestone run passed all three scenarios at
 22/22 gates each in 375.009 seconds using the local 27B baseline.
+
+The Stage 11 suite adds a fourth cross-modal scenario and four gates: the executed document query
+must match its action and evidence record; every passage must validate against its hash,
+published status, catalog locator, line range, and content-sanitization boundary; material
+numbers and sensitive consequences must exist in the exact evidence cited by each claim; and
+template terms cannot be applied to accounts without agreement or tier verification. Planning
+also rejects ranking-only hypotheses that require unavailable concentration math. Narrow,
+deterministic conclusion corrections remove unsupported claim content or document-language
+leakage and record the exact rule without modifying evidence. Template-based confidence is
+calibrated to the missing account-to-agreement mapping. The accepted September 4, 2026 run passed
+all four scenarios at 26/26 gates in 565.117 seconds using the local 27B baseline.

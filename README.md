@@ -20,8 +20,9 @@ important claims can be audited back to internal evidence.
 | Stage 8 — claim-level evidence provenance | Complete | Tagged `v0.9-evidence-provenance` |
 | Stage 9 — source and capability catalog | Complete | Tagged `v0.10-source-capability-catalog` |
 | Stage 10 — governed structured query | Complete | Tagged `v0.11-governed-structured-query` |
+| Stage 11 — cited document retrieval | Complete | Tagged `v0.12-cited-document-retrieval` |
 
-This repository contains eleven foundations:
+This repository contains twelve foundations:
 
 - **Stage 0 — Local Model Qualification:** prove a capable open model runs privately on
   Apple silicon behind a standard HTTP interface.
@@ -52,6 +53,9 @@ This repository contains eleven foundations:
 - **Stage 10 — Governed Structured Query:** let the analyst answer approved dimensional
   breakdown questions through a typed semantic request that compiles to parameterized,
   read-only SQL while preserving JSON parity and evidence provenance.
+- **Stage 11 — Cited Document Retrieval:** search only published, manifest-approved internal
+  documents; return bounded passages with document identity, exact lines, and content hashes;
+  and combine those citations with structured evidence in one controlled investigation.
 
 ## What Stage 0 proves
 
@@ -118,6 +122,16 @@ code; and the JSON and SQLite implementations must return identical typed result
 public scenarios passed 22/22 gates in 375.009 seconds with the local baseline. See
 [docs/stage-10-governed-structured-query.md](docs/stage-10-governed-structured-query.md).
 
+Stage 11 adds deterministic lexical retrieval over the seven published internal documents in
+the approved synthetic snapshot. Drafts, unlisted files, standalone canaries, and HTML comments
+are excluded. Every returned passage carries a logical file locator, section, exact line range,
+and SHA-256 hash. The first cross-modal scenario combines P1 account exposure with the published
+Standard MSA's response commitments. All four public scenarios passed 26/26 gates in 565.117
+seconds with 21 model requests, 61,287 tokens, and eight deterministic tool calls. The 108 fast
+tests also cover claim-to-citation number scope, hidden synthesis arithmetic, document-language
+leakage, template applicability, and calibrated confidence. See
+[docs/stage-11-cited-document-retrieval.md](docs/stage-11-cited-document-retrieval.md).
+
 ## Reproduce it
 
 Requirements: Apple silicon, Homebrew Python 3.13, and roughly 20 GB of free disk
@@ -137,6 +151,7 @@ In a second terminal:
 business-ops "Revenue fell while customer count stayed flat. What should we investigate?"
 business-ops-classify "Why did Northeast revenue decline last quarter?"
 business-ops-catalog --planning-view
+business-ops-documents "Standard MSA P1 initial response resolution"
 business-ops-query --start 2026-01-01 --end 2026-03-31 --dimension region
 business-ops-analytics account-risk
 business-ops-analytics product-risk --top 5
@@ -166,6 +181,7 @@ scripts/qualify.py          End-to-end API and performance qualification
 src/business_ops/client.py  Model-neutral OpenAI-compatible Python client
 src/business_ops/catalog.py Approved source, entity, metric, and analytical-capability catalog
 src/business_ops/catalog_cli.py Human- and machine-readable catalog inspection
+src/business_ops/document_cli.py Bounded published-document search with exact citations
 src/business_ops/query_cli.py Governed semantic-query inspection
 src/business_ops/cli.py     Inspectable business-question command line
 src/business_ops/questions.py  Validated business-question contract
@@ -191,19 +207,21 @@ docs/stage-7-evaluation-suite.md Public scenario contract and commercial evaluat
 docs/stage-8-evidence-provenance.md Claim-level citations and audit-bundle walkthrough
 docs/stage-9-source-capability-catalog.md Governed discovery and semantic-boundary walkthrough
 docs/stage-10-governed-structured-query.md Typed query contract and SQL safety boundary
+docs/stage-11-cited-document-retrieval.md Governed ingestion, retrieval, and citation boundary
 docs/runbook.md             Setup, operation, troubleshooting, and cleanup
 ```
 
 ## Scope boundary
 
-Stage 10 exposes five read-only analytical capabilities over DevRev's synthetic, Apache-2.0
+Stage 11 exposes six read-only analytical capabilities over DevRev's synthetic, Apache-2.0
 licensed Maple Payments data. Its investigation loop is capped at four distinct analyses.
 The catalog and evidence contracts are general, but the current source adapter and analyses
 are not. Cataloging an entity or modality does not make it queryable; execution requires an
 explicitly registered capability.
-The new semantic query is not arbitrary SQL: it exposes one approved metric, four approved
+The semantic query is not arbitrary SQL: it exposes one approved metric, four approved
 dimensions, two currencies, explicit dates, and a maximum of 50 rows. It does **not** add MCP,
-RAG, private business data, write actions, arbitrary SQL or file access,
+embeddings, a vector database, broad filesystem access, RAG over arbitrary sources, private
+business data, write actions, arbitrary SQL,
 long-lived memory, or a user interface.
 
 ## Safety note

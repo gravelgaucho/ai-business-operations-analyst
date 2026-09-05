@@ -7,6 +7,7 @@ from business_ops.catalog import DEFAULT_CATALOG
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.evaluation import (
     CAUSAL_ATTRIBUTION,
+    DOCUMENT_GROUNDED_SUPPORT_REVIEW,
     GOVERNED_OPPORTUNITY_ANALYSIS,
     SUPPORT_PRIORITIZATION,
     evaluate_investigation,
@@ -77,6 +78,8 @@ def state_for(
         arguments = (
             content["semantic_query"]
             if tool == "query_closed_won_opportunity_acv"
+            else content["query"]
+            if tool == "search_internal_documents"
             else {}
         )
         decisions.append(
@@ -91,6 +94,16 @@ def state_for(
                 "top_n_decliners": 5,
                 "priorities": ["p1"],
                 "currency": "USD",
+                "search_query": (
+                    arguments.get("query")
+                    if tool == "search_internal_documents"
+                    else None
+                ),
+                "document_top_k": (
+                    arguments.get("top_k", 5)
+                    if tool == "search_internal_documents"
+                    else 5
+                ),
             }
         )
         actions.append({"name": tool, "arguments": arguments, "returned": True})
@@ -364,6 +377,267 @@ def test_governed_query_action_cannot_diverge_from_evidenced_query() -> None:
 
     checks = {check.name: check for check in result.checks}
     assert checks["governed_query_contract"].passed is False
+
+
+def document_grounded_state() -> InvestigationState:
+    query = {
+        "query": DOCUMENT_GROUNDED_SUPPORT_REVIEW.question,
+        "top_k": 3,
+    }
+    excerpt = (
+        "### 3.2 Response & Resolution Targets\n\n"
+        "| Priority | Initial Response Time | Resolution Target | Business Hours |\n"
+        "|----------|----------------------|-------------------|----------------|\n"
+        "| **P1** | 1 hour | 24 hours | 24/7 |"
+    )
+    import hashlib
+
+    state = state_for(
+        question=DOCUMENT_GROUNDED_SUPPORT_REVIEW.question,
+        question_type="prescriptive",
+        tools=["get_account_support_risk", "search_internal_documents"],
+        observations=[
+            {
+                "source": source(),
+                "summary": {"affected_accounts": 8, "total_arr_at_risk": 1_041_000},
+            },
+            {
+                "source": source(),
+                "query": query,
+                "results": [
+                    {
+                        "document_id": "MSA-005",
+                        "title": "Maple Payments — Standard MSA Template",
+                        "status": "published",
+                        "modified_at": "2026-01-01T00:00:00Z",
+                        "locator": "internal_docs/msa_standard_template.md",
+                        "section": "3.2 Response & Resolution Targets",
+                        "line_start": 64,
+                        "line_end": 80,
+                        "chunk_sha256": (
+                            "sha256:" + hashlib.sha256(excerpt.encode()).hexdigest()
+                        ),
+                        "relevance_score": 29.0,
+                        "excerpt": excerpt,
+                    }
+                ],
+            },
+        ],
+        causal=False,
+    )
+    recommendation = state.conclusion.recommendation.model_copy(
+        update={
+            "statement": (
+                "Have an operations leader review the ranked evidence and verify the "
+                "applicable executed agreement or service tier."
+            ),
+            "rationale": (
+                "The template provides reference terms whose account-level applicability "
+                "requires human verification."
+            ),
+        }
+    )
+    confidence = state.conclusion.confidence.model_copy(
+        update={
+            "level": "medium",
+            "rationale": "Account-to-executed-agreement or service-tier mapping is absent.",
+            "data_quality": "limited",
+        }
+    )
+    return state.model_copy(
+        update={
+            "conclusion": state.conclusion.model_copy(
+                update={"recommendation": recommendation, "confidence": confidence}
+            )
+        }
+    )
+
+
+def test_document_grounded_scenario_passes_retrieval_and_citation_gates() -> None:
+    state = document_grounded_state()
+    scenario = DOCUMENT_GROUNDED_SUPPORT_REVIEW.model_copy(
+        update={
+            "evidence_expectations": DOCUMENT_GROUNDED_SUPPORT_REVIEW.evidence_expectations[:-1]
+        }
+    )
+    result = evaluate_investigation(scenario, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert result.passed is True
+    assert checks["document_retrieval_contract"].passed is True
+    assert checks["document_citation_integrity"].passed is True
+
+
+def test_synthesis_cannot_invent_a_new_numeric_subtotal() -> None:
+    state = document_grounded_state()
+    findings = list(state.conclusion.findings)
+    findings[0] = findings[0].model_copy(
+        update={"statement": "The top accounts total $612,000 of exposure."}
+    )
+    state = state.model_copy(
+        update={"conclusion": state.conclusion.model_copy(update={"findings": findings})}
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["evidence_content_scope"].passed is False
+    assert "612000" in checks["evidence_content_scope"].detail
+
+
+def test_claim_cannot_borrow_a_number_from_uncited_evidence() -> None:
+    state = document_grounded_state()
+    findings = list(state.conclusion.findings)
+    findings[0] = findings[0].model_copy(
+        update={"statement": "The ranked accounts total $29.00 of exposure."}
+    )
+    state = state.model_copy(
+        update={"conclusion": state.conclusion.model_copy(update={"findings": findings})}
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["evidence_content_scope"].passed is False
+    assert "finding:F1:number:29" in checks["evidence_content_scope"].detail
+
+
+def test_document_language_requires_document_evidence() -> None:
+    state = causal_state()
+    conclusion = state.conclusion.model_copy(
+        update={
+            "executive_summary": (
+                state.conclusion.executive_summary
+                + " Verify the applicable SLA and executed agreement."
+            )
+        }
+    )
+    state = state.model_copy(update={"conclusion": conclusion})
+
+    result = evaluate_investigation(CAUSAL_ATTRIBUTION, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["evidence_content_scope"].passed is False
+    assert "document-without-evidence:sla" in checks["evidence_content_scope"].detail
+
+
+def test_synthesis_cannot_describe_an_uncalculated_concentration_as_a_majority() -> None:
+    state = document_grounded_state()
+    assessments = list(state.conclusion.hypothesis_assessments)
+    assessments[0] = assessments[0].model_copy(
+        update={"rationale": "The top accounts hold the majority of exposure."}
+    )
+    state = state.model_copy(
+        update={
+            "conclusion": state.conclusion.model_copy(
+                update={"hypothesis_assessments": assessments}
+            )
+        }
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["evidence_content_scope"].passed is False
+    assert "majority" in checks["evidence_content_scope"].detail
+
+
+def test_synthesis_cannot_hide_uncalculated_math_as_a_material_share() -> None:
+    state = document_grounded_state()
+    findings = list(state.conclusion.findings)
+    findings[0] = findings[0].model_copy(
+        update={"statement": "The top accounts hold a material share of exposure."}
+    )
+    state = state.model_copy(
+        update={"conclusion": state.conclusion.model_copy(update={"findings": findings})}
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["evidence_content_scope"].passed is False
+    assert "material share" in checks["evidence_content_scope"].detail
+
+
+def test_synthesis_cannot_hide_uncalculated_math_as_a_collective_total() -> None:
+    state = document_grounded_state()
+    findings = list(state.conclusion.findings)
+    findings[0] = findings[0].model_copy(
+        update={"statement": "The top accounts collectively exceed the remaining exposure."}
+    )
+    state = state.model_copy(
+        update={"conclusion": state.conclusion.model_copy(update={"findings": findings})}
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["evidence_content_scope"].passed is False
+    assert "collectively" in checks["evidence_content_scope"].detail
+
+
+def test_template_terms_require_account_applicability_verification() -> None:
+    state = document_grounded_state()
+    recommendation = state.conclusion.recommendation.model_copy(
+        update={
+            "statement": "Ensure the ranked accounts comply with the Standard MSA.",
+            "rationale": "The template lists P1 response targets.",
+        }
+    )
+    state = state.model_copy(
+        update={
+            "conclusion": state.conclusion.model_copy(
+                update={"recommendation": recommendation}
+            )
+        }
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["document_applicability_restraint"].passed is False
+
+
+def test_document_cited_implication_must_state_template_applicability_condition() -> None:
+    state = document_grounded_state()
+    implications = list(state.conclusion.business_implications)
+    implications[0] = implications[0].model_copy(
+        update={
+            "statement": (
+                "The Standard MSA commitment requires continuous monitoring for these accounts."
+            )
+        }
+    )
+    state = state.model_copy(
+        update={
+            "conclusion": state.conclusion.model_copy(
+                update={"business_implications": implications}
+            )
+        }
+    )
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["document_applicability_restraint"].passed is False
+
+
+def test_executive_summary_must_state_template_applicability_condition() -> None:
+    state = document_grounded_state()
+    conclusion = state.conclusion.model_copy(
+        update={
+            "executive_summary": (
+                "The Standard MSA specifies P1 response commitments, so operations should "
+                "ensure the ranked accounts adhere to them."
+            )
+        }
+    )
+    state = state.model_copy(update={"conclusion": conclusion})
+
+    result = evaluate_investigation(DOCUMENT_GROUNDED_SUPPORT_REVIEW, state)
+
+    checks = {check.name: check for check in result.checks}
+    assert checks["document_applicability_restraint"].passed is False
 
 
 def test_unsupported_significantly_comparison_fails_the_statistics_gate() -> None:

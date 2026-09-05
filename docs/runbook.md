@@ -79,6 +79,18 @@ Repeat `--dimension` once to group by two dimensions. The only accepted dimensio
 command accepts no SQL. It validates the request, verifies the source, uses the read-only
 SQLite adapter by default, and includes the semantic request and metric boundary in its output.
 
+Search the Stage 11 approved published internal documents without starting the model server:
+
+```bash
+make documents
+business-ops-documents "Standard MSA P1 initial response resolution" --top 3
+```
+
+The command searches only published entries in `internal_docs/msa_and_compliance.json`. It
+does not crawl the folder. Drafts and unlisted files are excluded, and each result identifies
+its document, section, exact lines, and SHA-256 passage hash. Returned text is evidence only and
+is never interpreted as a command.
+
 Run deterministic Stage 3 analysis without starting the model server:
 
 ```bash
@@ -133,16 +145,23 @@ Run the current catalog- and evidence-grounded reliability suite through the ver
 make qualify-evaluation
 ```
 
-The three scenarios run sequentially and can take several minutes with the qualified 27B local
+The four scenarios run sequentially and can take several minutes with the qualified 27B local
 model. To diagnose one case, pass `--scenario causal_attribution`,
-`--scenario support_prioritization`, or `--scenario governed_opportunity_analysis` to
-`scripts/qualify_evaluation.py`.
+`--scenario support_prioritization`, `--scenario governed_opportunity_analysis`, or
+`--scenario document_grounded_support_review` to `scripts/qualify_evaluation.py`.
 
 The Stage 10 suite retains the catalog and evidence gates and adds typed-query alignment and
 bounded-result checks. The accepted milestone result is 3/3 scenarios and 22/22 gates per
 scenario. The verified run completed in 375.009 seconds. Timing and generated prose may vary
 between runs, while deterministic evidence, query arguments, catalog alignment, and pass
 criteria must remain stable.
+
+The Stage 11 acceptance target is 4/4 scenarios and 26/26 gates per scenario. The added gates
+verify document-query trace alignment, line-level citation integrity, evidence-content scope,
+and restraint when applying template terms to specific accounts. The accepted September 4, 2026
+run passed all four scenarios in 565.117 seconds with 21 model requests, 61,287 tokens, and eight
+tool calls. Generated prose and timing may vary, but deterministic evidence anchors, per-claim
+citation scope, catalog alignment, applicability restraint, and every gate must remain stable.
 
 Export a portable audit bundle while running one investigation:
 

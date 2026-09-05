@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from business_ops.catalog import DEFAULT_CATALOG, CapabilityCatalog
+from business_ops.catalog import DEFAULT_CATALOG, AccessMode, CapabilityCatalog
 
 
 class ProvenanceModel(BaseModel):
@@ -36,7 +36,7 @@ class EvidenceSource(ProvenanceModel):
     snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     license: str
     synthetic: bool
-    access_mode: Literal["authenticated_json", "read_only_sqlite"]
+    access_mode: AccessMode
     locators: tuple[SourceLocator, ...] = Field(min_length=1)
 
 
@@ -143,11 +143,14 @@ class AuditBundle(ProvenanceModel):
                 source = self.capability_catalog.source(capability.source_ids[0])
             except KeyError as exc:
                 raise ValueError("audit evidence references an unknown catalog entry") from exc
-            expected_locators = (
-                capability.json_files
-                if evidence_record.source.access_mode == "authenticated_json"
-                else capability.sqlite_tables
-            )
+            try:
+                expected_locators = capability.locators_for(
+                    evidence_record.source.access_mode
+                )
+            except KeyError as exc:
+                raise ValueError(
+                    "audit evidence uses an unsupported capability access mode"
+                ) from exc
             if (
                 evidence_record.method.implementation != capability.implementation
                 or evidence_record.method.method_version != capability.method_version
@@ -233,19 +236,24 @@ def build_evidence_record(
 ) -> EvidenceRecord:
     """Create one tamper-evident evidence record from a deterministic report."""
 
-    access_mode: Literal["authenticated_json", "read_only_sqlite"] = (
-        "authenticated_json" if isinstance(source, Path) else "read_only_sqlite"
+    capability = catalog.capability(tool_name)
+    access_mode: AccessMode = (
+        "authenticated_files"
+        if isinstance(source, Path) and capability.document_files
+        else "authenticated_json"
+        if isinstance(source, Path)
+        else "read_only_sqlite"
     )
     source_kind: Literal["file", "table"] = (
-        "file" if access_mode == "authenticated_json" else "table"
+        "table" if access_mode == "read_only_sqlite" else "file"
     )
-    capability = catalog.capability(tool_name)
     source_definition = catalog.source(capability.source_ids[0])
-    locator_values = (
-        capability.json_files
-        if access_mode == "authenticated_json"
-        else capability.sqlite_tables
-    )
+    try:
+        locator_values = capability.locators_for(access_mode)
+    except KeyError as exc:
+        raise ValueError(
+            f"Capability {tool_name} does not support evidence access mode {access_mode}"
+        ) from exc
     source_metadata = result.get("source", {})
     evidence_source = EvidenceSource(
         source_id=source_definition.source_id,

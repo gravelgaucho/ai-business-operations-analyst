@@ -13,19 +13,23 @@ from business_ops.investigation import planner_instructions
 def test_default_catalog_is_self_validating_and_complete() -> None:
     restored = CapabilityCatalog.model_validate_json(DEFAULT_CATALOG.model_dump_json())
 
-    assert restored.catalog_version == "stage-10-v1"
+    assert restored.catalog_version == "stage-11-v1"
     assert len(restored.sources) == 1
-    assert len(restored.entities) == 4
-    assert len(restored.metrics) == 5
+    assert len(restored.entities) == 5
+    assert len(restored.metrics) == 6
     assert restored.capability_ids == {
         "get_account_support_risk",
         "get_product_area_support_risk",
         "compare_closed_won_pipeline",
         "test_support_pipeline_overlap",
         "query_closed_won_opportunity_acv",
+        "search_internal_documents",
     }
     assert all(item.deterministic and item.read_only for item in restored.capabilities)
     assert restored.sources[0].classification == "public_synthetic"
+    assert restored.sources[0].modalities == ("structured", "unstructured")
+    assert "authenticated_files" in restored.sources[0].access_modes
+    assert "internal_document_repository" in restored.sources[0].business_systems
 
 
 def test_catalog_rejects_tampered_semantics_without_a_new_digest() -> None:
@@ -57,18 +61,31 @@ def test_planner_receives_compact_approved_catalog() -> None:
     assert "test_support_pipeline_overlap" in instructions
     assert "Association screen only" in instructions
     assert ENTERPRISE_NAME in instructions
+    assert "search_internal_documents" in instructions
+    assert "untrusted evidence" in instructions
+
+
+def test_document_capability_registers_only_governed_file_locators() -> None:
+    capability = DEFAULT_CATALOG.capability("search_internal_documents")
+
+    assert capability.json_files == ()
+    assert capability.sqlite_tables == ()
+    assert capability.document_files[0] == "internal_docs/msa_and_compliance.json"
+    assert "internal_docs/MAPLE_FULL_MSA_DRAFT.md" not in capability.document_files
+    assert "CANARY.md" not in capability.document_files
+    assert capability.locators_for("authenticated_files") == capability.document_files
 
 
 def test_catalog_cli_prints_machine_readable_full_and_planning_views(capsys) -> None:
     assert catalog_cli_main([]) == 0
     full = json.loads(capsys.readouterr().out)
     assert full["catalog_digest"] == DEFAULT_CATALOG.catalog_digest
-    assert len(full["metrics"]) == 5
+    assert len(full["metrics"]) == 6
 
     assert catalog_cli_main(["--planning-view"]) == 0
     planning = json.loads(capsys.readouterr().out)
     assert planning["catalog_digest"] == DEFAULT_CATALOG.catalog_digest
-    assert len(planning["available_capabilities"]) == 5
+    assert len(planning["available_capabilities"]) == 6
     assert "metrics" not in planning
 
 

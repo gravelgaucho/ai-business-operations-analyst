@@ -23,6 +23,7 @@ from business_ops.investigation import (
     decisive_causal_phrases,
     has_causal_attribution_language,
     has_revenue_metric_conflation,
+    plan_introduces_unsupported_ranking_concentration,
     run_investigation,
 )
 from business_ops.investigation_cli import main as investigation_cli_main
@@ -408,6 +409,207 @@ def test_controller_combines_period_comparison_with_governed_breakdown(
     assert state.evidence_ledger.records[1].method.arguments == state.actions[1].arguments
 
 
+def test_controller_combines_structured_exposure_with_cited_document_evidence(
+    dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("business_ops.investigation.verify_dataset", lambda root: root)
+    write_records(
+        dataset,
+        "internal_docs/msa_and_compliance.json",
+        [
+            {
+                "document_id": "MSA-005",
+                "status": "published",
+                "created_at": "2024-01-01T00:00:00Z",
+                "modified_at": "2026-01-01T00:00:00Z",
+                "author_id": "USER-001",
+                "content_format": "markdown",
+                "audience": "internal",
+                "title": "Maple Payments — Standard MSA Template",
+                "content_file": "msa_standard_template.md",
+            }
+        ],
+    )
+    (dataset / "internal_docs" / "msa_standard_template.md").write_text(
+        "# Standard MSA\n\n## 3.2 Response & Resolution Targets\n"
+        "| Priority | Initial Response | Resolution | Coverage |\n"
+        "| **P1** | 1 hour | 24 hours | 24/7 |\n",
+        encoding="utf-8",
+    )
+    question = (
+        "Which accounts should an operations leader review first because of open P1 support "
+        "exposure, and what initial response and resolution commitments does the published "
+        "Standard MSA specify for P1 issues?"
+    )
+    plan = json.loads(json.dumps(PLAN))
+    plan["question"] = {
+        "question_type": "prescriptive",
+        "scope": "support_exposure_and_contract_commitment",
+        "metric": "ARR exposure and P1 response commitments",
+        "time_period": None,
+        "entities": ["account", "internal_document"],
+        "requires_investigation": True,
+        "missing_information": [],
+        "normalized_question": question,
+    }
+    plan["objective"] = "Prioritize accounts and retrieve the governing Standard MSA terms."
+    plan["hypotheses"] = [
+        {
+            "hypothesis_id": "H1",
+            "statement": "Published Standard MSA terms define P1 response commitments.",
+            "test": "Retrieve a hashed passage from the manifest-approved published document.",
+        }
+    ]
+    plan["steps"] = [
+        {
+            "step_id": "step_1",
+            "analysis": "get_account_support_risk",
+            "purpose": "Rank current account exposure.",
+            "success_criterion": "A bounded account ranking is returned.",
+        },
+        {
+            "step_id": "step_2",
+            "analysis": "search_internal_documents",
+            "purpose": "Retrieve the published Standard MSA P1 terms.",
+            "success_criterion": "A hashed line-level passage is returned.",
+        },
+    ]
+    document_decision = PRODUCT_DECISION | {
+        "analysis": "search_internal_documents",
+        "rationale": "Retrieve the exact published Standard MSA passage.",
+        "search_query": "Standard MSA P1 initial response resolution",
+        "document_top_k": 3,
+    }
+    conclusion = json.loads(json.dumps(CONCLUSION))
+    conclusion["executive_summary"] = (
+        "The account ranking identifies current P1 exposure, and the published Standard MSA "
+        "specifies a 1-hour initial response and 24-hour resolution target with 24/7 coverage. "
+        "Verify the applicable executed agreement before applying those reference terms."
+    )
+    conclusion["findings"][0] = {
+        "finding_id": "F1",
+        "statement": "The structured report ranks the current account exposure.",
+        "claim_type": "verified_fact",
+        "evidence_ids": ["__EVIDENCE_1__"],
+    }
+    conclusion["findings"][1] = {
+        "finding_id": "F2",
+        "statement": (
+            "The published Standard MSA passage specifies a 1-hour P1 initial response and "
+            "24-hour resolution target with 24/7 coverage."
+        ),
+        "claim_type": "verified_fact",
+        "evidence_ids": ["__EVIDENCE_2__"],
+    }
+    conclusion["hypothesis_assessments"][0] = {
+        "hypothesis_id": "H1",
+        "status": "supported",
+        "rationale": "The cited published passage contains the requested P1 terms.",
+        "evidence_ids": ["__EVIDENCE_2__"],
+    }
+    conclusion["business_implications"][0]["statement"] = (
+        "If the applicable executed agreement uses these terms, operations can review exposed "
+        "accounts against the cited response commitment."
+    )
+    conclusion["recommendation"]["statement"] = (
+        "Have an operations leader review the ranked accounts and verify applicable agreements."
+    )
+    conclusion["recommendation"]["rationale"] = (
+        "The ranking identifies exposure while the cited template defines the reference terms."
+    )
+    conclusion["confidence"]["rationale"] = (
+        "The ranking and passage are deterministic, but agreement applicability needs review."
+    )
+    conclusion["unresolved_questions"] = [
+        "Does each affected account use the published Standard MSA without amendments?"
+    ]
+    conclusion["limitations"] = [
+        "A template passage does not establish account-specific contractual applicability."
+    ]
+
+    state = run_investigation(
+        question,
+        planner=create_planner(json_agent(plan)),
+        selector=selector_agent([ACCOUNT_DECISION, document_decision]),
+        synthesizer=create_synthesizer(json_agent(conclusion)),
+        data_root=dataset,
+    )
+
+    assert [action.name for action in state.actions] == [
+        "get_account_support_risk",
+        "search_internal_documents",
+    ]
+    assert state.actions[1].arguments["query"] == question
+    citation = state.observations[1].content["results"][0]
+    assert citation["document_id"] == "MSA-005"
+    assert citation["section"] == "3.2 Response & Resolution Targets"
+    assert citation["line_start"] == 3
+    assert state.evidence_ledger.records[1].source.access_mode == "authenticated_files"
+    assert state.evidence_ledger.records[1].reported_record_ids == ("MSA-005",)
+    assert state.conclusion.confidence.level == "medium"
+    assert state.conclusion.confidence.data_quality == "limited"
+    assert state.conclusion_correction is not None
+    assert "document_applicability_confidence" in state.conclusion_correction.triggering_rules
+
+
+def test_document_ranking_plan_rejects_an_unavailable_concentration_hypothesis() -> None:
+    plan = json.loads(json.dumps(PLAN))
+    plan["steps"] = [
+        {
+            "step_id": "step_1",
+            "analysis": "get_account_support_risk",
+            "purpose": "Rank current account exposure.",
+            "success_criterion": "A bounded account ranking is returned.",
+        },
+        {
+            "step_id": "step_2",
+            "analysis": "search_internal_documents",
+            "purpose": "Retrieve the published Standard MSA terms.",
+            "success_criterion": "A cited passage is returned.",
+        },
+    ]
+    plan["hypotheses"] = [
+        {
+            "hypothesis_id": "H1",
+            "statement": "A small subset holds the majority of P1 exposure.",
+            "test": "Calculate its share of total exposure.",
+        }
+    ]
+
+    assert plan_introduces_unsupported_ranking_concentration(
+        InvestigationPlan.model_validate(plan)
+    )
+
+
+def test_support_ranking_plan_rejects_an_unavailable_concentration_hypothesis() -> None:
+    plan = json.loads(json.dumps(PLAN))
+    plan["steps"] = [
+        {
+            "step_id": "step_1",
+            "analysis": "get_account_support_risk",
+            "purpose": "Rank current account exposure.",
+            "success_criterion": "A bounded account ranking is returned.",
+        },
+        {
+            "step_id": "step_2",
+            "analysis": "get_product_area_support_risk",
+            "purpose": "Rank current product-area exposure.",
+            "success_criterion": "A bounded product-area ranking is returned.",
+        },
+    ]
+    plan["hypotheses"] = [
+        {
+            "hypothesis_id": "H1",
+            "statement": "Exposure is concentrated in a small subset of accounts.",
+            "test": "Calculate its share of total exposure.",
+        }
+    ]
+
+    assert plan_introduces_unsupported_ranking_concentration(
+        InvestigationPlan.model_validate(plan)
+    )
+
+
 def test_evidence_records_are_content_addressed_and_tamper_evident(
     dataset: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -445,7 +647,7 @@ def test_audit_bundle_is_self_contained_and_round_trips(
     restored = AuditBundle.model_validate_json(bundle.model_dump_json())
 
     assert restored.investigation_id == bundle.investigation_id
-    assert restored.capability_catalog.catalog_version == "stage-10-v1"
+    assert restored.capability_catalog.catalog_version == "stage-11-v1"
     assert restored.capability_catalog.catalog_digest == state.capability_catalog.catalog_digest
     assert len(restored.evidence_ledger.records) == 2
     assert {claim.claim_type for claim in restored.claims} == {
@@ -727,9 +929,21 @@ def test_synthesis_retries_causal_boilerplate_for_noncausal_question(
             "success_criterion": "The product ranking is available.",
         },
     ]
+    plan["hypotheses"] = [
+        {
+            "hypothesis_id": "H1",
+            "statement": "The approved reports produce ranked current support exposures.",
+            "test": "Verify that both bounded rankings are returned.",
+        }
+    ]
     valid = json.loads(json.dumps(CONCLUSION))
-    valid["executive_summary"] = "Prioritize the highest current support exposures."
-    valid["findings"][0]["statement"] = "The account exposure ranking is available."
+    valid["executive_summary"] = (
+        "Prioritize the highest current support exposures. These rankings do not imply "
+        "contractual obligations."
+    )
+    valid["findings"][0]["statement"] = (
+        "The account exposure ranking is available, with an unsupported $999 subtotal."
+    )
     valid["findings"][1]["statement"] = "The product-area exposure ranking is available."
     valid["hypothesis_assessments"][0]["status"] = "supported"
     valid["hypothesis_assessments"][0]["rationale"] = (
@@ -740,10 +954,10 @@ def test_synthesis_retries_causal_boilerplate_for_noncausal_question(
         "The rankings provide a focused management review list."
     )
     valid["recommendation"]["statement"] = (
-        "Review the top-ranked accounts and product areas."
+        "Verify contractual obligations before acting on the rankings."
     )
     valid["recommendation"]["rationale"] = (
-        "The approved reports identify the largest current exposures."
+        "The applicability of service commitments is unverified."
     )
     valid["unresolved_questions"] = []
     valid["limitations"] = ["The source is synthetic."]
@@ -766,6 +980,21 @@ def test_synthesis_retries_causal_boilerplate_for_noncausal_question(
 
     assert state.usage.execution.requests == 4
     assert "causation" not in state.conclusion.model_dump_json().lower()
+    assert "contractual" not in state.conclusion.model_dump_json().lower()
+    assert "999" not in state.conclusion.model_dump_json()
+    assert state.conclusion.recommendation.statement == (
+        "Have a human review the top-ranked accounts and product areas in the cited evidence "
+        "before taking operational action."
+    )
+    assert state.conclusion.recommendation.rationale == (
+        "The deterministic rankings identify the highest measured current exposure."
+    )
+    assert state.conclusion_correction is not None
+    assert "document_evidence_required" in state.conclusion_correction.triggering_rules
+    assert any(
+        item.startswith("claim_content_scope:finding:F1:number:999")
+        for item in state.conclusion_correction.triggering_rules
+    )
 
 
 def test_dataset_is_verified_before_planning(

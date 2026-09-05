@@ -24,6 +24,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from business_ops.catalog import DEFAULT_CATALOG, CapabilityCatalog
 from business_ops.config import Settings
+from business_ops.datasets.documents import DocumentSearchQuery
 from business_ops.datasets.download import DatasetImportError, verify_dataset
 from business_ops.datasets.enterprise_bench import (
     EnterpriseBenchDataError,
@@ -38,6 +39,7 @@ from business_ops.datasets.sqlite_store import (
 from business_ops.reports import (
     AccountRiskQuery,
     AccountRiskReport,
+    DocumentSearchReport,
     OpportunityBreakdownReport,
     PipelineChangeQuery,
     PipelineChangeReport,
@@ -46,6 +48,7 @@ from business_ops.reports import (
     SupportPipelineLinkQuery,
     SupportPipelineLinkReport,
     account_risk_report,
+    document_search_report,
     opportunity_breakdown_report,
     pipeline_change_report,
     product_risk_report,
@@ -175,12 +178,26 @@ def query_closed_won_opportunity_acv(
     return opportunity_breakdown_report(ctx.deps.data_source, query)
 
 
+def search_internal_documents(
+    ctx: RunContext[AnalystDependencies], query: DocumentSearchQuery
+) -> DocumentSearchReport:
+    """Retrieve cited passages from approved published internal documents.
+
+    Args:
+        ctx: The verified local synthetic dataset root.
+        query: Plain-text search terms and a bounded passage count.
+    """
+
+    return document_search_report(ctx.deps.data_root, query)
+
+
 ANALYTICS_TOOLS = (
     Tool(get_account_support_risk, require_parameter_descriptions=True),
     Tool(get_product_area_support_risk, require_parameter_descriptions=True),
     Tool(compare_closed_won_pipeline, require_parameter_descriptions=True),
     Tool(test_support_pipeline_overlap, require_parameter_descriptions=True),
     Tool(query_closed_won_opportunity_acv, require_parameter_descriptions=True),
+    Tool(search_internal_documents, require_parameter_descriptions=True),
 )
 
 

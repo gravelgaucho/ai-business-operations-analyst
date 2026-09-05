@@ -7,15 +7,18 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from business_ops.catalog import CapabilityCatalog
+from business_ops.datasets.documents import DocumentCitation, DocumentSearchQuery
 from business_ops.datasets.download import ENTERPRISE_BENCH
 from business_ops.datasets.query_types import OpportunityBreakdownQuery
 from business_ops.investigation import (
     MANDATORY_CAUSAL_SENTENCE,
     AnalysisKind,
     InvestigationState,
+    document_applicability_is_preserved,
     has_causal_attribution_language,
     has_revenue_metric_conflation,
     has_unsupported_statistical_language,
+    unsupported_claim_content,
 )
 from business_ops.provenance import EvidenceRecord
 from business_ops.questions import QuestionType
@@ -190,10 +193,53 @@ GOVERNED_OPPORTUNITY_ANALYSIS = EvaluationScenario(
 )
 
 
+DOCUMENT_GROUNDED_SUPPORT_REVIEW = EvaluationScenario(
+    scenario_id="document_grounded_support_review",
+    question=(
+        "Which accounts should an operations leader review first because of open P1 support "
+        "exposure, and what initial response and resolution commitments does the published "
+        "Standard MSA specify for P1 issues?"
+    ),
+    expected_question_types=(QuestionType.PRESCRIPTIVE,),
+    required_analyses=(
+        AnalysisKind.ACCOUNT_SUPPORT_RISK,
+        AnalysisKind.INTERNAL_DOCUMENT_SEARCH,
+    ),
+    evidence_expectations=(
+        EvidenceExpectation(
+            analysis=AnalysisKind.ACCOUNT_SUPPORT_RISK,
+            path="summary.affected_accounts",
+            expected=8,
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.ACCOUNT_SUPPORT_RISK,
+            path="summary.total_arr_at_risk",
+            expected=1_041_000,
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.INTERNAL_DOCUMENT_SEARCH,
+            path="results.0.document_id",
+            expected="MSA-005",
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.INTERNAL_DOCUMENT_SEARCH,
+            path="results.0.section",
+            expected="3.2 Response & Resolution Targets",
+        ),
+        EvidenceExpectation(
+            analysis=AnalysisKind.INTERNAL_DOCUMENT_SEARCH,
+            path="results.0.chunk_sha256",
+            expected="sha256:5e3f5971be4f7504703bb215c9dc823a4383052ada02f34e9edc1133f74fb321",
+        ),
+    ),
+)
+
+
 DEFAULT_SCENARIOS = (
     CAUSAL_ATTRIBUTION,
     SUPPORT_PRIORITIZATION,
     GOVERNED_OPPORTUNITY_ANALYSIS,
+    DOCUMENT_GROUNDED_SUPPORT_REVIEW,
 )
 _MISSING = object()
 
@@ -258,18 +304,20 @@ def evaluate_investigation(
         for evidence_record in state.evidence_ledger.records:
             capability = state.capability_catalog.capability(evidence_record.method.tool_name)
             source = state.capability_catalog.source(capability.source_ids[0])
-            expected_locators = (
-                capability.json_files
-                if evidence_record.source.access_mode == "authenticated_json"
-                else capability.sqlite_tables
-            )
-            catalog_alignment = catalog_alignment and (
-                evidence_record.method.implementation == capability.implementation
-                and evidence_record.method.method_version == capability.method_version
-                and evidence_record.source.source_id == source.source_id
-                and tuple(item.locator for item in evidence_record.source.locators)
-                == expected_locators
-            )
+            try:
+                expected_locators = capability.locators_for(
+                    evidence_record.source.access_mode
+                )
+            except KeyError:
+                catalog_alignment = False
+            else:
+                catalog_alignment = catalog_alignment and (
+                    evidence_record.method.implementation == capability.implementation
+                    and evidence_record.method.method_version == capability.method_version
+                    and evidence_record.source.source_id == source.source_id
+                    and tuple(item.locator for item in evidence_record.source.locators)
+                    == expected_locators
+                )
     record(
         "catalog_execution_alignment",
         catalog_alignment,
@@ -444,6 +492,103 @@ def evaluate_investigation(
             else "not applicable; no governed query executed"
             if governed_result_bounded
             else "; ".join(governed_failures)
+        ),
+    )
+
+    document_actions = [
+        action
+        for action in state.actions
+        if action.name == AnalysisKind.INTERNAL_DOCUMENT_SEARCH.value and action.returned
+    ]
+    document_records = [
+        item
+        for item in evidence_records
+        if item.method.tool_name == AnalysisKind.INTERNAL_DOCUMENT_SEARCH.value
+    ]
+    document_contract_valid = len(document_actions) == len(document_records)
+    document_citations_valid = document_contract_valid
+    document_failures: list[str] = []
+    for action, evidence_record in zip(document_actions, document_records, strict=False):
+        try:
+            query = DocumentSearchQuery.model_validate(action.arguments)
+            reported_query = DocumentSearchQuery.model_validate(
+                evidence_record.result.get("query", {})
+            )
+        except (AttributeError, ValueError) as exc:
+            document_contract_valid = False
+            document_citations_valid = False
+            document_failures.append(str(exc))
+            continue
+        if evidence_record.method.arguments != action.arguments or reported_query != query:
+            document_contract_valid = False
+            document_failures.append("executed arguments do not match the evidenced search")
+        results = evidence_record.result.get("results")
+        if not isinstance(results, list) or len(results) > query.top_k:
+            document_citations_valid = False
+            document_failures.append("retrieval results are missing or exceed the requested bound")
+            continue
+        try:
+            citations = [DocumentCitation.model_validate(item) for item in results]
+            capability = state.capability_catalog.capability(
+                AnalysisKind.INTERNAL_DOCUMENT_SEARCH.value
+            )
+        except (KeyError, ValueError) as exc:
+            document_citations_valid = False
+            document_failures.append(str(exc))
+            continue
+        citations_match_catalog = all(
+            citation.locator in capability.document_files
+            and "enterprise-bench-canary" not in citation.excerpt.lower()
+            for citation in citations
+        )
+        if not citations_match_catalog:
+            document_citations_valid = False
+            document_failures.append("a citation is unregistered or contains stripped metadata")
+    record(
+        "document_retrieval_contract",
+        document_contract_valid,
+        (
+            "bounded search arguments match the executed and evidenced document query"
+            if document_contract_valid and document_actions
+            else "not applicable; no document search executed"
+            if document_contract_valid
+            else "; ".join(document_failures)
+        ),
+    )
+    record(
+        "document_citation_integrity",
+        document_citations_valid,
+        (
+            "published passages have approved locators, exact line ranges, and valid hashes"
+            if document_citations_valid and document_actions
+            else "not applicable; no document search executed"
+            if document_citations_valid
+            else "; ".join(document_failures)
+        ),
+    )
+
+    unsupported_content = unsupported_claim_content(
+        state.evidence_ledger, state.conclusion
+    )
+    record(
+        "evidence_content_scope",
+        not unsupported_content,
+        (
+            "all material numbers and sensitive consequences match their cited evidence"
+            if not unsupported_content
+            else "unsupported claim content: " + ", ".join(unsupported_content)
+        ),
+    )
+    applicability_preserved = document_applicability_is_preserved(
+        state.evidence_ledger, state.conclusion
+    )
+    record(
+        "document_applicability_restraint",
+        applicability_preserved,
+        (
+            "template terms remain conditional on the applicable executed agreement or tier"
+            if document_actions
+            else "not applicable; no document template used"
         ),
     )
 
